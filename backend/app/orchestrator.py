@@ -2,25 +2,29 @@
 LangGraph Orchestrator for Multimodal Chatbot.
 
 This module defines the workflow for routing queries to specialized VLM services
-(Grounding, VQA, Captioning) with optional IR2RGB preprocessing for
-multispectral satellite images.
+(Grounding, VQA, Captioning) with automatic modality detection and optional
+IR2RGB preprocessing for multispectral satellite images.
 
 Workflow:
-    START -> [IR2RGB Preprocessing (optional)] -> Router -> Service -> END
+    START -> Modality Detection -> [IR2RGB Preprocessing (if infrared)] -> Router -> Service -> END
 """
 
 import logging
-from typing import Literal, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Optional
 
 from langchain_openai import ChatOpenAI
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import END, START, StateGraph
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from app.schemas.orchestrator_schema import AgentState
-from app.services.modal_client import ModalServiceClient
-from app.services.ir2rgb_service import get_ir2rgb_service, is_ir2rgb_available
 from app.core.checkpoint import MongoDBCheckpointer
+from app.schemas.orchestrator_schema import AgentState
+from app.services.ir2rgb_service import get_ir2rgb_service, is_ir2rgb_available
+from app.services.modal_client import ModalServiceClient
+from app.services.modality_router import (
+    get_modality_router_service,
+    is_modality_detection_available,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +46,7 @@ def append_user_message(state: AgentState) -> dict:
         "role": "user",
         "content": user_query if user_query else "[Image only]",
         "image_url": image_url,
-        "timestamp": datetime.utcnow(),  # Use datetime object for consistency
+        "timestamp": datetime.now(timezone.utc),
     }
     
     messages.append(user_message)
@@ -63,7 +67,7 @@ def append_assistant_message(
         "content": content,
         "response_type": response_type,
         "image_url": state.get("image_url"),
-        "timestamp": datetime.utcnow(),  # Use datetime object for consistency
+        "timestamp": datetime.now(timezone.utc),
         "metadata": metadata or {},
     }
     
@@ -94,6 +98,103 @@ def integrate_user_memory(state: AgentState, user_memory: Optional[dict]) -> dic
         session_context["previous_summaries"] = conversation_summaries[-3:]  # Last 3 summaries
     
     return {"session_context": session_context}
+
+
+# =============================================================================
+# Modality Detection Node
+# =============================================================================
+
+def detect_modality_node(state: AgentState) -> dict:
+    """
+    Detect image modality and configure preprocessing flags.
+    
+    This node runs first in the workflow to automatically detect
+    whether the image is RGB, infrared, SAR, or unknown.
+    
+    For infrared images, it auto-enables IR2RGB preprocessing.
+    For SAR images, it logs a warning but continues processing.
+    
+    Returns:
+        State updates with detected_modality and potentially needs_ir2rgb.
+    """
+    update: dict = {}
+    
+    # Check if modality detection is enabled
+    if not state.get("modality_detection_enabled", True):
+        state["execution_log"].append("Modality Detection: Disabled by request")
+        update["detected_modality"] = None
+        update["modality_diagnostics"] = {"reason": "disabled"}
+        return update
+    
+    # Check if modality detection service is available
+    if not is_modality_detection_available():
+        state["execution_log"].append(
+            "Modality Detection: Skipped (dependencies not available)"
+        )
+        update["detected_modality"] = "unknown"
+        update["modality_diagnostics"] = {"reason": "dependencies_unavailable"}
+        return update
+    
+    try:
+        state["execution_log"].append("Modality Detection: Analyzing image...")
+        
+        modality_service = get_modality_router_service()
+        image_url = state["image_url"]
+        
+        # Detect modality from URL
+        modality, diagnostics = modality_service.detect_modality_from_url(
+            image_url,
+            metadata_priority=True
+        )
+        
+        update["detected_modality"] = modality
+        update["modality_diagnostics"] = diagnostics
+        
+        # Log detection result
+        reason = diagnostics.get("reason", "unknown")
+        state["execution_log"].append(
+            f"Modality Detection: Detected '{modality}' (reason: {reason})"
+        )
+        
+        # Auto-enable IR2RGB for infrared images if not already set
+        if modality == "infrared":
+            if not state.get("needs_ir2rgb", False):
+                update["needs_ir2rgb"] = True
+                state["execution_log"].append(
+                    "Modality Detection: Auto-enabled IR2RGB for infrared image"
+                )
+                
+                # Set default IR2RGB channels if not provided
+                if not state.get("ir2rgb_channels"):
+                    update["ir2rgb_channels"] = ["NIR", "R", "G"]
+                    state["execution_log"].append(
+                        "Modality Detection: Using default channels ['NIR', 'R', 'G']"
+                    )
+        
+        # Warn for SAR images
+        elif modality == "sar":
+            state["execution_log"].append(
+                "Modality Detection: WARNING - SAR image detected. "
+                "VLM processing may produce suboptimal results."
+            )
+            logger.warning(
+                f"SAR image detected for URL: {image_url[:100]}... "
+                "Consider specialized SAR processing."
+            )
+        
+        return update
+    
+    except Exception as e:
+        # Graceful degradation: log error but don't fail the workflow
+        logger.error(f"Modality detection failed: {e}", exc_info=True)
+        state["execution_log"].append(
+            f"Modality Detection: Failed - {str(e)}. Continuing with defaults."
+        )
+        
+        return {
+            "detected_modality": "unknown",
+            "modality_diagnostics": {"error": str(e), "reason": "detection_failed"}
+        }
 
 
 # =============================================================================
@@ -375,13 +476,17 @@ def build_workflow():
     Construct the multimodal chatbot workflow.
     
     Graph structure:
-        START -> preprocessing_router
+        START -> detect_modality -> preprocessing_router
             -> preprocess_ir2rgb -> conditional_router -> service -> END
             -> route_to_service -> conditional_router -> service -> END
+    
+    The detect_modality node runs first to classify the image and
+    auto-configure IR2RGB preprocessing for infrared images.
     """
     workflow = StateGraph(AgentState)
     
     # === ADD NODES ===
+    workflow.add_node("detect_modality", detect_modality_node)
     workflow.add_node("preprocess_ir2rgb", preprocess_ir2rgb_node)
     workflow.add_node("route_to_service", route_to_service_node)
     workflow.add_node("call_grounding", call_grounding_node)
@@ -390,9 +495,12 @@ def build_workflow():
     
     # === ADD EDGES ===
     
-    # Entry: START -> preprocessing router
+    # Entry: START -> detect_modality
+    workflow.add_edge(START, "detect_modality")
+    
+    # After modality detection, route to preprocessing
     workflow.add_conditional_edges(
-        START,
+        "detect_modality",
         preprocessing_router,
         {
             "preprocess_ir2rgb": "preprocess_ir2rgb",
@@ -430,7 +538,9 @@ def build_workflow():
     # === CHECKPOINTING ===
     checkpointer = MongoDBCheckpointer()
     
-    logger.info("Building LangGraph workflow with IR2RGB preprocessing support")
+    logger.info(
+        "Building LangGraph workflow with modality detection and IR2RGB preprocessing"
+    )
     return workflow.compile(checkpointer=checkpointer)
 
 

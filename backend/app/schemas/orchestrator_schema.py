@@ -1,4 +1,4 @@
-from typing import TypedDict, List, Optional, Literal, Any
+from typing import TypedDict, List, Optional, Literal, Any, Dict
 from pydantic import BaseModel, Field
 
 
@@ -8,6 +8,11 @@ class AgentState(TypedDict):
     image_url: str
     user_query: Optional[str]
     mode: Literal["auto", "grounding", "vqa", "captioning"]
+    
+    # Modality detection
+    modality_detection_enabled: bool  # Whether to auto-detect modality
+    detected_modality: Optional[str]  # "rgb", "infrared", "sar", "unknown"
+    modality_diagnostics: Optional[Dict[str, Any]]  # Detection diagnostics
     
     # IR2RGB preprocessing (optional)
     needs_ir2rgb: bool  # Whether image needs IR2RGB conversion
@@ -39,6 +44,12 @@ class ChatRequest(BaseModel):
     query: Optional[str] = None
     mode: Literal["auto", "grounding", "vqa", "captioning"] = "auto"
     
+    # Modality detection (optional)
+    modality_detection_enabled: bool = Field(
+        default=True,
+        description="Whether to auto-detect image modality (rgb/infrared/sar)"
+    )
+    
     # IR2RGB preprocessing parameters (optional)
     needs_ir2rgb: bool = Field(
         default=False,
@@ -63,6 +74,12 @@ class ChatResponse(BaseModel):
     message_id: Optional[str] = Field(
         default=None,
         description="ID of the persisted assistant message"
+    )
+    
+    # Modality detection result
+    detected_modality: Optional[str] = Field(
+        default=None,
+        description="Detected image modality: rgb, infrared, sar, or unknown"
     )
     
     # IR2RGB conversion result (if applied)

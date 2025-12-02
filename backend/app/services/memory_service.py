@@ -9,7 +9,7 @@ This service handles persistence of:
 
 import logging
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from langchain_openai import ChatOpenAI
@@ -46,7 +46,7 @@ async def save_message(
 ) -> MessagePublic:
     """Save a message to the database."""
     doc = data.model_dump()
-    doc["created_at"] = datetime.utcnow()
+    doc["created_at"] = datetime.now(timezone.utc)
     
     result = await db[MESSAGES_COLLECTION].insert_one(doc)
     created = await db[MESSAGES_COLLECTION].find_one({"_id": result.inserted_id})
@@ -92,7 +92,7 @@ async def create_session(
 ) -> SessionPublic:
     """Create a new session."""
     doc = data.model_dump()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     doc["created_at"] = now
     doc["updated_at"] = now
     doc["last_activity"] = now
@@ -126,8 +126,8 @@ async def update_session_context(
     if not update_dict:
         return await get_session(db, session_id)
     
-    update_dict["updated_at"] = datetime.utcnow()
-    update_dict["last_activity"] = datetime.utcnow()
+    update_dict["updated_at"] = datetime.now(timezone.utc)
+    update_dict["last_activity"] = datetime.now(timezone.utc)
     
     # Handle context merge
     if "context" in update_dict:
@@ -200,8 +200,8 @@ async def increment_session_message_count(
         {
             "$inc": {"message_count": 1},
             "$set": {
-                "updated_at": datetime.utcnow(),
-                "last_activity": datetime.utcnow()
+                "updated_at": datetime.now(timezone.utc),
+                "last_activity": datetime.now(timezone.utc)
             }
         }
     )
@@ -228,7 +228,7 @@ async def create_user_memory(
 ) -> UserMemoryPublic:
     """Create a new user memory."""
     doc = data.model_dump()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     doc["created_at"] = now
     doc["updated_at"] = now
     doc.setdefault("preferences", {})
@@ -253,7 +253,7 @@ async def update_user_memory(
     if not update_dict:
         return await get_user_memory(db, user_id)
     
-    update_dict["updated_at"] = datetime.utcnow()
+    update_dict["updated_at"] = datetime.now(timezone.utc)
     
     # Fetch existing document once for all merge operations
     existing = await db[USER_MEMORIES_COLLECTION].find_one({"user_id": user_id})

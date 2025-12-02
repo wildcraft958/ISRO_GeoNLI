@@ -2,8 +2,9 @@
 FastAPI routes for the multimodal chatbot orchestrator.
 
 Endpoints:
-    POST /orchestrator/chat - Main chat endpoint with optional IR2RGB preprocessing
+    POST /orchestrator/chat - Main chat endpoint with modality detection and IR2RGB
     POST /orchestrator/ir2rgb - Standalone IR2RGB conversion endpoint
+    GET /orchestrator/modality/status - Check modality detection service status
     GET /orchestrator/session/{session_id}/history - Get session history
     GET /orchestrator/sessions - Get user sessions
     GET /orchestrator/sessions/{session_id}/messages - Get session messages
@@ -15,23 +16,24 @@ import logging
 import uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.api.deps import get_db_dep
+from app.orchestrator import app, integrate_user_memory
+from app.schemas.message_schema import MessageCreate
 from app.schemas.orchestrator_schema import (
-    ChatRequest, 
+    ChatRequest,
     ChatResponse,
     IR2RGBRequest,
     IR2RGBResponse,
 )
-from app.schemas.message_schema import MessageCreate
 from app.schemas.session_schema import SessionCreate, SessionUpdate
 from app.schemas.user_memory_schema import UserMemoryUpdate
-from app.orchestrator import app, integrate_user_memory
-from app.utils.session_manager import SessionManager
-from app.services.ir2rgb_service import get_ir2rgb_service, is_ir2rgb_available
 from app.services import memory_service
-from app.api.deps import get_db_dep
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from app.services.ir2rgb_service import get_ir2rgb_service, is_ir2rgb_available
+from app.services.modality_router import is_modality_detection_available
+from app.utils.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +55,13 @@ async def chat_endpoint(
         - mode: "auto", "grounding", "vqa", or "captioning"
         - session_id: Optional session ID for conversation persistence
         - user_id: Optional user ID for user memory integration
-        - needs_ir2rgb: Whether to convert multispectral image to RGB
+        - modality_detection_enabled: Whether to auto-detect image modality (default True)
+        - needs_ir2rgb: Whether to convert multispectral image to RGB (auto-set if infrared detected)
         - ir2rgb_channels: Channel order for IR2RGB (e.g., ["NIR", "R", "G"])
         - ir2rgb_synthesize: Which channel to synthesize ("R", "G", or "B")
     
     Returns:
-        ChatResponse with response content, execution log, and message_id
+        ChatResponse with response content, execution log, detected_modality, and message_id
     """
     try:
         # Initialize session manager with database
@@ -99,12 +102,19 @@ async def chat_endpoint(
             "image_url": req.image_url,
             "user_query": req.query,
             "mode": req.mode,
+            # Modality detection
+            "modality_detection_enabled": req.modality_detection_enabled,
+            "detected_modality": None,
+            "modality_diagnostics": None,
+            # IR2RGB preprocessing
             "needs_ir2rgb": req.needs_ir2rgb,
             "ir2rgb_channels": req.ir2rgb_channels,
             "ir2rgb_synthesize": req.ir2rgb_synthesize,
             "original_image_url": None,
+            # Session state
             "messages": existing_state.get("messages", []) if existing_state else [],
             "session_context": existing_state.get("session_context", {}) if existing_state else {},
+            # Service results
             "caption_result": None,
             "vqa_result": None,
             "grounding_result": None,
@@ -116,7 +126,11 @@ async def chat_endpoint(
             memory_update = integrate_user_memory(inputs, user_memory.model_dump())
             inputs.update(memory_update)
         
-        logger.info(f"Processing chat request: session={session_id}, user={req.user_id}, mode={req.mode}, ir2rgb={req.needs_ir2rgb}")
+        logger.info(
+            f"Processing chat request: session={session_id}, user={req.user_id}, "
+            f"mode={req.mode}, modality_detection={req.modality_detection_enabled}, "
+            f"ir2rgb={req.needs_ir2rgb}"
+        )
         
         # Invoke workflow
         result = app.invoke(inputs, config=config)
@@ -173,18 +187,31 @@ async def chat_endpoint(
         if assistant_message and "id" in assistant_message:
             message_id = assistant_message["id"]
         
+        # Determine if IR2RGB was applied (either by request or auto-detection)
+        ir2rgb_applied = (
+            req.needs_ir2rgb or 
+            result.get("detected_modality") == "infrared"
+        )
+        
         # Build response
         response = ChatResponse(
             session_id=session_id,
             response_type=response_type,
             content=content,
             execution_log=result.get("execution_log", []),
-            converted_image_url=result.get("image_url") if req.needs_ir2rgb else None,
-            original_image_url=result.get("original_image_url"),
             message_id=message_id,
+            # Modality detection result
+            detected_modality=result.get("detected_modality"),
+            # IR2RGB conversion result
+            converted_image_url=result.get("image_url") if ir2rgb_applied else None,
+            original_image_url=result.get("original_image_url"),
         )
         
-        logger.info(f"Chat request completed: session={session_id}, type={response_type}, message_id={message_id}")
+        detected = result.get("detected_modality", "unknown")
+        logger.info(
+            f"Chat request completed: session={session_id}, type={response_type}, "
+            f"modality={detected}, message_id={message_id}"
+        )
         
         return response
     
@@ -261,6 +288,31 @@ async def ir2rgb_status():
     return {
         "available": available,
         "message": "IR2RGB service is available" if available else "Model weights not found"
+    }
+
+
+@router.get("/modality/status")
+async def modality_detection_status():
+    """
+    Check if modality detection service is available.
+    
+    Returns:
+        dict with availability status and dependencies info
+    """
+    available = is_modality_detection_available()
+    return {
+        "available": available,
+        "message": (
+            "Modality detection service is available" 
+            if available 
+            else "Required dependencies not installed (cv2, numpy, scipy)"
+        ),
+        "features": {
+            "metadata_parsing": True,
+            "sar_detection": available,
+            "infrared_detection": available,
+            "alpha_channel_detection": available,
+        }
     }
 
 
