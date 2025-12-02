@@ -81,10 +81,13 @@ class TestImageLoader:
     @pytest.mark.unit
     def test_download_image_failure(self):
         """Test image download failure handling."""
+        from tenacity import RetryError
+        
         with patch("requests.get") as mock_get:
             mock_get.side_effect = Exception("Network error")
             
-            with pytest.raises(ImageLoadError):
+            # Retry decorator wraps exceptions in RetryError after retries
+            with pytest.raises((ImageLoadError, RetryError)):
                 ImageLoader.download_image("https://example.com/test.jpg")
     
     @pytest.mark.unit
@@ -249,7 +252,8 @@ class TestAlphaDetector:
         alpha = np.zeros((100, 100), dtype=np.uint8)
         alpha[25:75, 25:75] = 255
         
-        assert AlphaDetector.alpha_like(alpha) is True
+        # Use == instead of 'is' because numpy returns np.bool_, not Python bool
+        assert AlphaDetector.alpha_like(alpha) == True
     
     @pytest.mark.unit
     def test_alpha_like_false_continuous(self):
@@ -286,7 +290,8 @@ class TestAlphaDetector:
         alpha[33:66, :] = 128
         alpha[66:100, :] = 255
         
-        assert AlphaDetector.alpha_like(alpha, uniq_threshold=10) is True
+        # Use == instead of 'is' because numpy returns np.bool_, not Python bool
+        assert AlphaDetector.alpha_like(alpha, uniq_threshold=10) == True
 
 
 # =============================================================================

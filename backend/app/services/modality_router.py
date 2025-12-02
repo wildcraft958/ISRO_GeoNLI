@@ -393,7 +393,8 @@ class AlphaDetector:
         frac_end = (zeros + maxs) / (flat.size + 1e-12)
         uniq = np.unique(flat)
         
-        return (frac_end > frac_threshold) or (uniq.size < uniq_threshold)
+        # Convert to Python bool for consistency
+        return bool((frac_end > frac_threshold) or (uniq.size < uniq_threshold))
 
 
 class MetadataParser:
