@@ -306,7 +306,7 @@ class IR2RGBService:
                 # Default path relative to project root
                 model_path = str(
                     Path(__file__).parent.parent.parent.parent 
-                    / "nothing_0435-feat-fcc_handling" 
+                    / "ir2rgb_models" 
                     / "model_weights" 
                     / "models_ir_rgb.npz"
                 )
@@ -457,7 +457,7 @@ def is_ir2rgb_available() -> bool:
     """Check if IR2RGB service is available (model weights exist)."""
     default_path = (
         Path(__file__).parent.parent.parent.parent 
-        / "nothing_0435-feat-fcc_handling" 
+        / "ir2rgb_models" 
         / "model_weights" 
         / "models_ir_rgb.npz"
     )

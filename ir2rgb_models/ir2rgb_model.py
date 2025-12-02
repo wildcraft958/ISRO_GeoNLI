@@ -1,6 +1,22 @@
+"""
+IR2RGB Model for False Color Composite (FCC) to RGB conversion.
+
+This module provides the core IR2RGBModel class that converts multispectral
+satellite images (with NIR band) to RGB using pre-trained RPCC weights and LUT.
+
+The model is used by the IR2RGBService in the backend for in-memory processing.
+
+Usage:
+    from ir2rgb_model import IR2RGBModel
+    
+    model = IR2RGBModel("model_weights/models_ir_rgb.npz")
+    rgb_image = model.synthesize_B(image_path, channels=["NIR", "R", "G"])
+"""
+
 import numpy as np
 from PIL import Image
 from pathlib import Path
+
 
 class IR2RGBModel:
     def __init__(self, npz_path):
