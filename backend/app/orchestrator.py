@@ -10,7 +10,8 @@ Workflow:
 """
 
 import logging
-from typing import Literal
+from typing import Literal, Optional
+from datetime import datetime
 
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
@@ -28,6 +29,74 @@ modal_client = ModalServiceClient()
 
 
 # =============================================================================
+# Memory Helper Functions
+# =============================================================================
+
+def append_user_message(state: AgentState) -> dict:
+    """Append user message to state.messages."""
+    messages = state.get("messages", [])
+    user_query = state.get("user_query", "")
+    image_url = state.get("image_url", "")
+    
+    user_message = {
+        "role": "user",
+        "content": user_query if user_query else "[Image only]",
+        "image_url": image_url,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    
+    messages.append(user_message)
+    return {"messages": messages}
+
+
+def append_assistant_message(
+    state: AgentState,
+    content: str,
+    response_type: str,
+    metadata: Optional[dict] = None
+) -> dict:
+    """Append assistant message to state.messages."""
+    messages = state.get("messages", [])
+    
+    assistant_message = {
+        "role": "assistant",
+        "content": content,
+        "response_type": response_type,
+        "image_url": state.get("image_url"),
+        "timestamp": datetime.utcnow().isoformat(),
+        "metadata": metadata or {},
+    }
+    
+    messages.append(assistant_message)
+    return {"messages": messages}
+
+
+def integrate_user_memory(state: AgentState, user_memory: Optional[dict]) -> dict:
+    """
+    Integrate user memory into session context.
+    
+    Merges user preferences and conversation summaries into session_context.
+    """
+    if not user_memory:
+        return {}
+    
+    session_context = state.get("session_context", {})
+    user_preferences = user_memory.get("preferences", {})
+    
+    # Merge user preferences into session context
+    if "user_preferences" not in session_context:
+        session_context["user_preferences"] = {}
+    session_context["user_preferences"].update(user_preferences)
+    
+    # Add conversation summaries to context
+    conversation_summaries = user_memory.get("conversation_summaries", [])
+    if conversation_summaries:
+        session_context["previous_summaries"] = conversation_summaries[-3:]  # Last 3 summaries
+    
+    return {"session_context": session_context}
+
+
+# =============================================================================
 # IR2RGB Preprocessing Node
 # =============================================================================
 
@@ -37,14 +106,21 @@ def preprocess_ir2rgb_node(state: AgentState) -> dict:
     
     This node runs before routing to any service if needs_ir2rgb is True.
     It converts FCC (False Color Composite) images to standard RGB.
+    Also appends user message if not already present.
     """
+    # Append user message first if needed
+    update = {}
+    messages = state.get("messages", [])
+    if not messages or messages[-1].get("role") != "user":
+        update = append_user_message(state)
+    
     if not state.get("needs_ir2rgb", False):
         state["execution_log"].append("IR2RGB: Skipped (not needed)")
-        return {}
+        return update
     
     if not is_ir2rgb_available():
         state["execution_log"].append("IR2RGB: Skipped (model weights not available)")
-        return {}
+        return update
     
     try:
         state["execution_log"].append("IR2RGB: Starting conversion...")
@@ -70,6 +146,7 @@ def preprocess_ir2rgb_node(state: AgentState) -> dict:
             )
             
             return {
+                **update,
                 "image_url": converted_url,
                 "original_image_url": original_url,
             }
@@ -77,12 +154,18 @@ def preprocess_ir2rgb_node(state: AgentState) -> dict:
             error = result.get("error", "Unknown error")
             state["execution_log"].append(f"IR2RGB: Conversion failed - {error}")
             # Continue with original image if conversion fails
-            return {"original_image_url": original_url}
+            return {
+                **update,
+                "original_image_url": original_url,
+            }
     
     except Exception as e:
         logger.error(f"IR2RGB preprocessing failed: {e}")
         state["execution_log"].append(f"IR2RGB: Failed - {str(e)}")
-        return {"original_image_url": state["image_url"]}
+        return {
+            **update,
+            "original_image_url": state["image_url"],
+        }
 
 
 # =============================================================================
@@ -182,7 +265,19 @@ def call_grounding_node(state: AgentState) -> dict:
         bbox_count = len(result.get("bboxes", []))
         state["execution_log"].append(f"Grounding: Success ({bbox_count} boxes detected)")
         
-        return {"grounding_result": result}
+        # Append assistant message
+        content = f"Found {bbox_count} bounding box(es)" if bbox_count > 0 else "No objects detected"
+        message_update = append_assistant_message(
+            state,
+            content,
+            "boxes",
+            metadata={"grounding_result": result, "execution_log": state.get("execution_log", [])}
+        )
+        
+        return {
+            "grounding_result": result,
+            **message_update
+        }
     
     except Exception as e:
         logger.error(f"Grounding service failed: {e}")
@@ -204,7 +299,18 @@ def call_vqa_node(state: AgentState) -> dict:
         answer_preview = answer[:50] + "..." if len(answer) > 50 else answer
         state["execution_log"].append(f"VQA: Success ({answer_preview})")
         
-        return {"vqa_result": answer}
+        # Append assistant message
+        message_update = append_assistant_message(
+            state,
+            answer,
+            "answer",
+            metadata={"vqa_result": result, "execution_log": state.get("execution_log", [])}
+        )
+        
+        return {
+            "vqa_result": answer,
+            **message_update
+        }
     
     except Exception as e:
         logger.error(f"VQA service failed: {e}")
@@ -225,7 +331,18 @@ def call_captioning_node(state: AgentState) -> dict:
         caption_preview = caption[:50] + "..." if len(caption) > 50 else caption
         state["execution_log"].append(f"Captioning: Success ({caption_preview})")
         
-        return {"caption_result": caption}
+        # Append assistant message
+        message_update = append_assistant_message(
+            state,
+            caption,
+            "caption",
+            metadata={"caption_result": result, "execution_log": state.get("execution_log", [])}
+        )
+        
+        return {
+            "caption_result": caption,
+            **message_update
+        }
     
     except Exception as e:
         logger.error(f"Captioning service failed: {e}")
@@ -240,8 +357,12 @@ def call_captioning_node(state: AgentState) -> dict:
 def route_to_service_node(state: AgentState) -> dict:
     """
     Passthrough node for cases when no preprocessing is needed.
-    This node does nothing but allows proper edge routing.
+    Appends user message to state if not already present.
     """
+    # Append user message if this is the first time through
+    messages = state.get("messages", [])
+    if not messages or messages[-1].get("role") != "user":
+        return append_user_message(state)
     return {}
 
 

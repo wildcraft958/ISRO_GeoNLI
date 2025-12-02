@@ -31,6 +31,10 @@ class AgentState(TypedDict):
 class ChatRequest(BaseModel):
     """Request model for chat orchestrator endpoint"""
     session_id: Optional[str] = None
+    user_id: Optional[str] = Field(
+        None,
+        description="User identifier for user memory integration (optional)"
+    )
     image_url: str
     query: Optional[str] = None
     mode: Literal["auto", "grounding", "vqa", "captioning"] = "auto"
@@ -56,6 +60,10 @@ class ChatResponse(BaseModel):
     response_type: str  # "caption", "answer", "boxes"
     content: Any
     execution_log: List[str]
+    message_id: Optional[str] = Field(
+        default=None,
+        description="ID of the persisted assistant message"
+    )
     
     # IR2RGB conversion result (if applied)
     converted_image_url: Optional[str] = Field(
