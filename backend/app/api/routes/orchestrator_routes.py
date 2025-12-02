@@ -33,6 +33,7 @@ from app.schemas.user_memory_schema import UserMemoryUpdate
 from app.services import memory_service
 from app.services.ir2rgb_service import get_ir2rgb_service, is_ir2rgb_available
 from app.services.modality_router import is_modality_detection_available
+from app.services.resnet_classifier_client import is_resnet_classifier_available
 from app.utils.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -105,7 +106,9 @@ async def chat_endpoint(
             # Modality detection
             "modality_detection_enabled": req.modality_detection_enabled,
             "detected_modality": None,
+            "modality_confidence": None,
             "modality_diagnostics": None,
+            "resnet_classification_used": False,
             # IR2RGB preprocessing
             "needs_ir2rgb": req.needs_ir2rgb,
             "ir2rgb_channels": req.ir2rgb_channels,
@@ -202,15 +205,21 @@ async def chat_endpoint(
             message_id=message_id,
             # Modality detection result
             detected_modality=result.get("detected_modality"),
+            modality_confidence=result.get("modality_confidence"),
+            resnet_classification_used=result.get("resnet_classification_used", False),
             # IR2RGB conversion result
             converted_image_url=result.get("image_url") if ir2rgb_applied else None,
             original_image_url=result.get("original_image_url"),
         )
         
         detected = result.get("detected_modality", "unknown")
+        confidence = result.get("modality_confidence")
+        resnet_used = result.get("resnet_classification_used", False)
+        confidence_str = f", confidence={confidence:.3f}" if confidence else ""
+        resnet_str = " (ResNet)" if resnet_used else ""
         logger.info(
             f"Chat request completed: session={session_id}, type={response_type}, "
-            f"modality={detected}, message_id={message_id}"
+            f"modality={detected}{confidence_str}{resnet_str}, message_id={message_id}"
         )
         
         return response
@@ -299,19 +308,33 @@ async def modality_detection_status():
     Returns:
         dict with availability status and dependencies info
     """
-    available = is_modality_detection_available()
+    statistical_available = is_modality_detection_available()
+    resnet_available = is_resnet_classifier_available()
+    
     return {
-        "available": available,
-        "message": (
-            "Modality detection service is available" 
-            if available 
-            else "Required dependencies not installed (cv2, numpy, scipy)"
-        ),
+        "available": statistical_available or resnet_available,
+        "statistical_detection": {
+            "available": statistical_available,
+            "message": (
+                "Statistical detection available" 
+                if statistical_available 
+                else "Dependencies not installed (cv2, numpy, scipy)"
+            ),
+        },
+        "resnet_classifier": {
+            "available": resnet_available,
+            "message": (
+                "ResNet classifier service is available"
+                if resnet_available
+                else "ResNet Modal service not reachable"
+            ),
+        },
         "features": {
             "metadata_parsing": True,
-            "sar_detection": available,
-            "infrared_detection": available,
-            "alpha_channel_detection": available,
+            "sar_detection": statistical_available,
+            "infrared_detection": statistical_available,
+            "alpha_channel_detection": statistical_available,
+            "resnet_fallback": resnet_available,
         }
     }
 

@@ -12,7 +12,9 @@ class AgentState(TypedDict):
     # Modality detection
     modality_detection_enabled: bool  # Whether to auto-detect modality
     detected_modality: Optional[str]  # "rgb", "infrared", "sar", "unknown"
+    modality_confidence: Optional[float]  # Confidence score (0.0-1.0)
     modality_diagnostics: Optional[Dict[str, Any]]  # Detection diagnostics
+    resnet_classification_used: bool  # Whether ResNet fallback was used
     
     # IR2RGB preprocessing (optional)
     needs_ir2rgb: bool  # Whether image needs IR2RGB conversion
@@ -80,6 +82,14 @@ class ChatResponse(BaseModel):
     detected_modality: Optional[str] = Field(
         default=None,
         description="Detected image modality: rgb, infrared, sar, or unknown"
+    )
+    modality_confidence: Optional[float] = Field(
+        default=None,
+        description="Confidence score for modality detection (0.0-1.0)"
+    )
+    resnet_classification_used: bool = Field(
+        default=False,
+        description="Whether ResNet classifier was used for modality detection"
     )
     
     # IR2RGB conversion result (if applied)

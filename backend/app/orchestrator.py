@@ -25,6 +25,11 @@ from app.services.modality_router import (
     get_modality_router_service,
     is_modality_detection_available,
 )
+from app.services.resnet_classifier_client import (
+    get_resnet_classifier_client,
+    is_resnet_classifier_available,
+    ResNetClassifierError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,13 +116,19 @@ def detect_modality_node(state: AgentState) -> dict:
     This node runs first in the workflow to automatically detect
     whether the image is RGB, infrared, SAR, or unknown.
     
-    For infrared images, it auto-enables IR2RGB preprocessing.
-    For SAR images, it logs a warning but continues processing.
+    Detection strategy:
+    1. First, run statistical detection (fast, local)
+    2. If result is SAR or uncertain, use ResNet classifier as fallback
+    3. For infrared images, auto-enable IR2RGB preprocessing
     
     Returns:
-        State updates with detected_modality and potentially needs_ir2rgb.
+        State updates with detected_modality, modality_confidence,
+        resnet_classification_used, and potentially needs_ir2rgb.
     """
-    update: dict = {}
+    update: dict = {
+        "resnet_classification_used": False,
+        "modality_confidence": None,
+    }
     
     # Check if modality detection is enabled
     if not state.get("modality_detection_enabled", True):
@@ -126,75 +137,145 @@ def detect_modality_node(state: AgentState) -> dict:
         update["modality_diagnostics"] = {"reason": "disabled"}
         return update
     
-    # Check if modality detection service is available
-    if not is_modality_detection_available():
-        state["execution_log"].append(
-            "Modality Detection: Skipped (dependencies not available)"
-        )
-        update["detected_modality"] = "unknown"
-        update["modality_diagnostics"] = {"reason": "dependencies_unavailable"}
-        return update
+    image_url = state["image_url"]
+    statistical_modality = None
+    statistical_diagnostics = {}
     
-    try:
-        state["execution_log"].append("Modality Detection: Analyzing image...")
-        
-        modality_service = get_modality_router_service()
-        image_url = state["image_url"]
-        
-        # Detect modality from URL
-        modality, diagnostics = modality_service.detect_modality_from_url(
-            image_url,
-            metadata_priority=True
-        )
-        
-        update["detected_modality"] = modality
-        update["modality_diagnostics"] = diagnostics
-        
-        # Log detection result
-        reason = diagnostics.get("reason", "unknown")
-        state["execution_log"].append(
-            f"Modality Detection: Detected '{modality}' (reason: {reason})"
-        )
-        
-        # Auto-enable IR2RGB for infrared images if not already set
-        if modality == "infrared":
-            if not state.get("needs_ir2rgb", False):
-                update["needs_ir2rgb"] = True
-                state["execution_log"].append(
-                    "Modality Detection: Auto-enabled IR2RGB for infrared image"
-                )
-                
-                # Set default IR2RGB channels if not provided
-                if not state.get("ir2rgb_channels"):
-                    update["ir2rgb_channels"] = ["NIR", "R", "G"]
-                    state["execution_log"].append(
-                        "Modality Detection: Using default channels ['NIR', 'R', 'G']"
-                    )
-        
-        # Warn for SAR images
-        elif modality == "sar":
+    # ==========================================================================
+    # Step 1: Statistical Detection (fast, local)
+    # ==========================================================================
+    if is_modality_detection_available():
+        try:
             state["execution_log"].append(
-                "Modality Detection: WARNING - SAR image detected. "
-                "VLM processing may produce suboptimal results."
+                "Modality Detection: Running statistical analysis..."
             )
-            logger.warning(
-                f"SAR image detected for URL: {image_url[:100]}... "
-                "Consider specialized SAR processing."
+            
+            modality_service = get_modality_router_service()
+            statistical_modality, statistical_diagnostics = (
+                modality_service.detect_modality_from_url(
+                    image_url,
+                    metadata_priority=True
+                )
             )
-        
-        return update
-    
-    except Exception as e:
-        # Graceful degradation: log error but don't fail the workflow
-        logger.error(f"Modality detection failed: {e}", exc_info=True)
+            
+            reason = statistical_diagnostics.get("reason", "unknown")
+            state["execution_log"].append(
+                f"Modality Detection (Statistical): '{statistical_modality}' "
+                f"(reason: {reason})"
+            )
+            
+        except Exception as e:
+            logger.warning(f"Statistical modality detection failed: {e}")
+            state["execution_log"].append(
+                f"Modality Detection (Statistical): Failed - {str(e)}"
+            )
+            statistical_modality = "unknown"
+            statistical_diagnostics = {"error": str(e)}
+    else:
         state["execution_log"].append(
-            f"Modality Detection: Failed - {str(e)}. Continuing with defaults."
+            "Modality Detection (Statistical): Skipped (dependencies unavailable)"
         )
-        
-        return {
-            "detected_modality": "unknown",
-            "modality_diagnostics": {"error": str(e), "reason": "detection_failed"}
-        }
+        statistical_modality = "unknown"
+    
+    # ==========================================================================
+    # Step 2: ResNet Fallback for SAR or Uncertain Cases
+    # ==========================================================================
+    # Use ResNet when:
+    # - Statistical detection says SAR (needs confirmation)
+    # - Statistical detection is uncertain/unknown
+    # - Statistical detection failed
+    needs_resnet_fallback = statistical_modality in ("sar", "unknown")
+    
+    final_modality = statistical_modality
+    final_confidence = None
+    
+    if needs_resnet_fallback and is_resnet_classifier_available():
+        try:
+            state["execution_log"].append(
+                "Modality Detection: Using ResNet classifier for confirmation..."
+            )
+            
+            resnet_client = get_resnet_classifier_client()
+            resnet_modality, resnet_confidence, probabilities = (
+                resnet_client.classify_from_url(image_url)
+            )
+            
+            update["resnet_classification_used"] = True
+            final_modality = resnet_modality
+            final_confidence = resnet_confidence
+            
+            state["execution_log"].append(
+                f"Modality Detection (ResNet): '{resnet_modality}' "
+                f"(confidence: {resnet_confidence:.3f})"
+            )
+            
+            # Update diagnostics with ResNet results
+            statistical_diagnostics["resnet_result"] = {
+                "modality": resnet_modality,
+                "confidence": resnet_confidence,
+                "probabilities": probabilities,
+            }
+            
+        except ResNetClassifierError as e:
+            logger.warning(f"ResNet classification failed: {e}")
+            state["execution_log"].append(
+                f"Modality Detection (ResNet): Failed - {str(e)}. "
+                f"Using statistical result."
+            )
+            # Keep statistical result as fallback
+            
+        except Exception as e:
+            logger.error(f"Unexpected ResNet error: {e}", exc_info=True)
+            state["execution_log"].append(
+                f"Modality Detection (ResNet): Unexpected error - {str(e)}"
+            )
+    
+    elif needs_resnet_fallback:
+        state["execution_log"].append(
+            "Modality Detection (ResNet): Skipped (service unavailable)"
+        )
+    
+    # ==========================================================================
+    # Step 3: Set Final Results and Configure Preprocessing
+    # ==========================================================================
+    update["detected_modality"] = final_modality
+    update["modality_confidence"] = final_confidence
+    update["modality_diagnostics"] = statistical_diagnostics
+    
+    # Log final detection result
+    confidence_str = f", confidence: {final_confidence:.3f}" if final_confidence else ""
+    resnet_str = " (ResNet)" if update["resnet_classification_used"] else " (Statistical)"
+    state["execution_log"].append(
+        f"Modality Detection: Final result '{final_modality}'{confidence_str}{resnet_str}"
+    )
+    
+    # Auto-enable IR2RGB for infrared images
+    if final_modality == "infrared":
+        if not state.get("needs_ir2rgb", False):
+            update["needs_ir2rgb"] = True
+            state["execution_log"].append(
+                "Modality Detection: Auto-enabled IR2RGB for infrared image"
+            )
+            
+            # Set default IR2RGB channels if not provided
+            if not state.get("ir2rgb_channels"):
+                update["ir2rgb_channels"] = ["NIR", "R", "G"]
+                state["execution_log"].append(
+                    "Modality Detection: Using default channels ['NIR', 'R', 'G']"
+                )
+    
+    # Log warning for SAR images
+    elif final_modality == "sar":
+        state["execution_log"].append(
+            "Modality Detection: WARNING - SAR image detected. "
+            "VLM processing may produce suboptimal results."
+        )
+        logger.warning(
+            f"SAR image detected for URL: {image_url[:100]}... "
+            "Consider specialized SAR processing."
+        )
+    
+    return update
 
 
 # =============================================================================
