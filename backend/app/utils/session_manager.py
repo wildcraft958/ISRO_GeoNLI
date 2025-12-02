@@ -36,7 +36,11 @@ class SessionManager:
             if state and state.values:
                 return state.values.get("messages", [])
             return []
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                f"Failed to get session history for {session_id}: {e}",
+                exc_info=True
+            )
             return []
     
     def get_session_state(self, session_id: str) -> Optional[dict]:
@@ -47,7 +51,11 @@ class SessionManager:
             if state and state.values:
                 return state.values
             return None
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                f"Failed to get session state for {session_id}: {e}",
+                exc_info=True
+            )
             return None
     
     async def get_persistent_messages(

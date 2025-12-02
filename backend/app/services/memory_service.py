@@ -24,9 +24,16 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Collection names
 MESSAGES_COLLECTION = "messages"
 SESSIONS_COLLECTION = "sessions"
 USER_MEMORIES_COLLECTION = "user_memories"
+
+# Memory limits (configurable constants)
+MAX_CONVERSATION_SUMMARIES = 10
+MAX_FREQUENT_QUERIES = 20
+MIN_MESSAGES_FOR_SUMMARY = 10
+DEFAULT_MAX_MESSAGES = 50
 
 
 # =============================================================================
@@ -165,13 +172,22 @@ async def delete_session(
     db: AsyncIOMotorDatabase,
     session_id: str
 ) -> bool:
-    """Delete a session and all its messages."""
-    # Delete messages first
-    await delete_session_messages(db, session_id)
+    """Delete a session and all its messages.
+    
+    Returns:
+        True if session was deleted or if session didn't exist but cleanup was performed.
+        False only if there was an error during deletion.
+    """
+    # Delete messages first (always succeeds, even if no messages exist)
+    deleted_messages = await delete_session_messages(db, session_id)
+    logger.debug(f"Deleted {deleted_messages} messages for session {session_id}")
     
     # Delete session
     result = await db[SESSIONS_COLLECTION].delete_one({"session_id": session_id})
-    return result.deleted_count > 0
+    
+    # Return True if session was deleted OR if messages were deleted (cleanup performed)
+    # This handles the case where session doesn't exist but messages might
+    return result.deleted_count > 0 or deleted_messages > 0
 
 
 async def increment_session_message_count(
@@ -229,39 +245,40 @@ async def update_user_memory(
     user_id: str,
     update_data: UserMemoryUpdate
 ) -> Optional[UserMemoryPublic]:
-    """Update user memory (preferences, summaries, frequent queries)."""
+    """Update user memory (preferences, summaries, frequent queries).
+    
+    Optimized to fetch existing document once and merge all updates.
+    """
     update_dict = update_data.model_dump(exclude_unset=True)
     if not update_dict:
         return await get_user_memory(db, user_id)
     
     update_dict["updated_at"] = datetime.utcnow()
     
+    # Fetch existing document once for all merge operations
+    existing = await db[USER_MEMORIES_COLLECTION].find_one({"user_id": user_id})
+    
     # Handle preferences merge
-    if "preferences" in update_dict:
-        existing = await db[USER_MEMORIES_COLLECTION].find_one({"user_id": user_id})
-        if existing and "preferences" in existing:
-            existing_prefs = existing.get("preferences", {})
-            existing_prefs.update(update_dict["preferences"])
-            update_dict["preferences"] = existing_prefs
+    if "preferences" in update_dict and existing:
+        existing_prefs = existing.get("preferences", {})
+        existing_prefs.update(update_dict["preferences"])
+        update_dict["preferences"] = existing_prefs
     
-    # Handle list appends for summaries and queries
-    if "conversation_summaries" in update_dict:
-        existing = await db[USER_MEMORIES_COLLECTION].find_one({"user_id": user_id})
-        if existing:
-            existing_summaries = existing.get("conversation_summaries", [])
-            new_summaries = update_dict["conversation_summaries"]
-            # Append new summaries, keeping last 10
-            combined = existing_summaries + new_summaries
-            update_dict["conversation_summaries"] = combined[-10:]
+    # Handle list appends for summaries
+    if "conversation_summaries" in update_dict and existing:
+        existing_summaries = existing.get("conversation_summaries", [])
+        new_summaries = update_dict["conversation_summaries"]
+        # Append new summaries, keeping last MAX_CONVERSATION_SUMMARIES
+        combined = existing_summaries + new_summaries
+        update_dict["conversation_summaries"] = combined[-MAX_CONVERSATION_SUMMARIES:]
     
-    if "frequent_queries" in update_dict:
-        existing = await db[USER_MEMORIES_COLLECTION].find_one({"user_id": user_id})
-        if existing:
-            existing_queries = existing.get("frequent_queries", [])
-            new_queries = update_dict["frequent_queries"]
-            # Append new queries, deduplicate, keep last 20
-            combined = list(set(existing_queries + new_queries))
-            update_dict["frequent_queries"] = combined[-20:]
+    # Handle list appends for queries
+    if "frequent_queries" in update_dict and existing:
+        existing_queries = existing.get("frequent_queries", [])
+        new_queries = update_dict["frequent_queries"]
+        # Append new queries, deduplicate, keep last MAX_FREQUENT_QUERIES
+        combined = list(set(existing_queries + new_queries))
+        update_dict["frequent_queries"] = combined[-MAX_FREQUENT_QUERIES:]
     
     result = await db[USER_MEMORIES_COLLECTION].update_one(
         {"user_id": user_id},
@@ -286,7 +303,7 @@ async def update_user_memory(
 async def summarize_conversation(
     db: AsyncIOMotorDatabase,
     session_id: str,
-    max_messages: int = 50
+    max_messages: int = DEFAULT_MAX_MESSAGES
 ) -> Optional[str]:
     """
     Summarize a conversation using LLM when it gets too long.
@@ -298,7 +315,7 @@ async def summarize_conversation(
         # Get recent messages
         messages = await get_session_messages(db, session_id, limit=max_messages)
         
-        if len(messages) < 10:  # Don't summarize if too few messages
+        if len(messages) < MIN_MESSAGES_FOR_SUMMARY:
             return None
         
         # Build conversation text

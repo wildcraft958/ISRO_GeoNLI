@@ -1,5 +1,4 @@
 from typing import Any, Mapping
-from datetime import datetime
 
 
 def message_to_public(message: Mapping[str, Any]) -> dict:

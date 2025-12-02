@@ -1,14 +1,18 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 from datetime import datetime
 from pydantic import BaseModel, Field
+
+# Type definitions for strict validation
+MessageRole = Literal["user", "assistant"]
+ResponseType = Literal["caption", "answer", "boxes"]
 
 
 class MessageCreate(BaseModel):
     """Schema for creating a new message."""
-    role: str = Field(..., description="Message role: 'user' or 'assistant'")
+    role: MessageRole = Field(..., description="Message role: 'user' or 'assistant'")
     content: str = Field(..., description="Message content")
     image_url: Optional[str] = Field(None, description="URL of associated image")
-    response_type: Optional[str] = Field(
+    response_type: Optional[ResponseType] = Field(
         None, 
         description="Type of response: 'caption', 'answer', 'boxes', or None"
     )
@@ -23,10 +27,10 @@ class MessageCreate(BaseModel):
 class MessageInDB(BaseModel):
     """Schema for message stored in database."""
     id: str
-    role: str
+    role: MessageRole
     content: str
     image_url: Optional[str]
-    response_type: Optional[str]
+    response_type: Optional[ResponseType]
     session_id: str
     user_id: Optional[str]
     created_at: datetime

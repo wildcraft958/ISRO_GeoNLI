@@ -13,7 +13,7 @@ Endpoints:
 
 import logging
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 
@@ -416,7 +416,7 @@ async def persist_messages_and_update_session(
     messages: list,
     execution_log: list,
     response_type: str,
-    content
+    content: Any
 ):
     """
     Background task to persist messages and update session.

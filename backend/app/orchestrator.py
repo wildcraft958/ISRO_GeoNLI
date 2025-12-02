@@ -42,7 +42,7 @@ def append_user_message(state: AgentState) -> dict:
         "role": "user",
         "content": user_query if user_query else "[Image only]",
         "image_url": image_url,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.utcnow(),  # Use datetime object for consistency
     }
     
     messages.append(user_message)
@@ -63,7 +63,7 @@ def append_assistant_message(
         "content": content,
         "response_type": response_type,
         "image_url": state.get("image_url"),
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.utcnow(),  # Use datetime object for consistency
         "metadata": metadata or {},
     }
     
