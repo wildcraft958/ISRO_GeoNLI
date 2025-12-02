@@ -1,0 +1,17 @@
+/.venv
+.venv
+.env
+.DS_Store
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Compiled Python files
+*.egg-info/
+
+# uv
+.uv/
+uv.lock
