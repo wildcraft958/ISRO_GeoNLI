@@ -303,9 +303,11 @@ class IR2RGBService:
                 return
             
             if model_path is None:
-                # Default path relative to project root
+                # Default path relative to backend directory
+                # __file__ is at: backend/app/services/ir2rgb_service.py
+                # We need: backend/ir2rgb_models/model_weights/models_ir_rgb.npz
                 model_path = str(
-                    Path(__file__).parent.parent.parent.parent 
+                    Path(__file__).parent.parent.parent 
                     / "ir2rgb_models" 
                     / "model_weights" 
                     / "models_ir_rgb.npz"
@@ -455,8 +457,10 @@ def get_ir2rgb_service(model_path: Optional[str] = None) -> IR2RGBService:
 
 def is_ir2rgb_available() -> bool:
     """Check if IR2RGB service is available (model weights exist)."""
+    # __file__ is at: backend/app/services/ir2rgb_service.py
+    # We need: backend/ir2rgb_models/model_weights/models_ir_rgb.npz
     default_path = (
-        Path(__file__).parent.parent.parent.parent 
+        Path(__file__).parent.parent.parent 
         / "ir2rgb_models" 
         / "model_weights" 
         / "models_ir_rgb.npz"

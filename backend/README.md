@@ -6,10 +6,28 @@ A production-grade multimodal chatbot orchestrator using LangGraph, FastAPI, and
 
 - Python 3.11+
 - [uv](https://github.com/astral-sh/uv) - Fast Python package manager
+- `make` - Build automation tool (usually pre-installed on Linux/Mac)
+
+## Quick Start
+
+The easiest way to get started is using the Makefile:
+
+```bash
+cd backend
+make setup    # Complete setup (installs uv, deps, creates .env, initializes DB)
+make run      # Start the server
+```
+
+Or see all available commands:
+```bash
+make help
+```
 
 ## Installation
 
 ### Install uv
+
+The Makefile will automatically install uv if missing, or you can install it manually:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -22,20 +40,26 @@ pip install uv
 
 ### Setup Project
 
-1. Clone the repository and navigate to the backend directory:
+**Using Makefile (Recommended):**
+
 ```bash
 cd backend
-```
-
-2. Install dependencies using uv:
-```bash
-uv sync
+make setup
 ```
 
 This will:
-- Create a virtual environment automatically
-- Install all project dependencies from `pyproject.toml`
-- Install dev dependencies (if needed, use `uv sync --dev`)
+- Check/install uv automatically
+- Install all dependencies from `pyproject.toml`
+- Create `.env` template if missing
+- Initialize the database
+
+**Manual Setup:**
+
+```bash
+cd backend
+uv sync              # Install dependencies
+uv run python init_db.py  # Initialize database
+```
 
 ## Configuration
 
@@ -66,53 +90,71 @@ LANGSMITH_PROJECT=multimodal-chatbot
 
 ## Running the Application
 
-### Initialize Database
+**Using Makefile (Recommended):**
 
 ```bash
-uv run python init_db.py
+make run    # Start production server
+make dev    # Start development server (same as run, with auto-reload)
 ```
 
-### Start the Server
+**Manual:**
 
 ```bash
 uv run python run.py
-```
-
-Or use the start script:
-```bash
-./start.sh
 ```
 
 The API will be available at `http://localhost:8000`
 
 ## Development
 
+### Common Makefile Commands
+
+```bash
+# Testing
+make test              # Run all tests
+make test-unit         # Run only unit tests
+make test-integration  # Run only integration tests
+make test-cov          # Run tests with coverage report
+make test-fast         # Run tests excluding slow ones
+
+# Code Quality
+make lint              # Run linter (ruff)
+make lint-fix          # Run linter and auto-fix issues
+make format            # Format code with black
+make format-check      # Check formatting without changes
+make type-check        # Run type checker (mypy)
+make check             # Run all checks (lint, format, type-check)
+
+# Maintenance
+make clean             # Clean cache files and artifacts
+make clean-all         # Clean everything including venv
+make status            # Check service status
+```
+
 ### Install Dev Dependencies
 
 ```bash
+make install           # Installs all dependencies including dev
+# or manually:
 uv sync --dev
 ```
 
 ### Run with Auto-reload
 
-The server runs with auto-reload enabled by default when using `run.py`.
-
-### Format Code
-
+The server runs with auto-reload enabled by default:
 ```bash
-uv run black .
+make dev
 ```
 
-### Lint Code
+### Manual Development Commands
+
+If you prefer not using Makefile:
 
 ```bash
-uv run ruff check .
-```
-
-### Type Checking
-
-```bash
-uv run mypy .
+uv run black app/ tests/           # Format code
+uv run ruff check app/ tests/      # Lint code
+uv run mypy app/                   # Type check
+uv run pytest tests/               # Run tests
 ```
 
 ## API Endpoints
@@ -149,8 +191,9 @@ backend/
 │   ├── config.py
 │   └── main.py
 ├── pyproject.toml
+├── Makefile          # Build automation
 ├── run.py
-└── start.sh
+└── init_db.py
 ```
 
 ## Dependencies
@@ -171,7 +214,7 @@ The orchestrator integrates with Modal-deployed VLM services:
 - VQA (visual question answering)
 - Captioning (image description)
 
-See `../modal_services/` for service implementations.
+See `modal_services/` for service implementations.
 
 ## License
 
