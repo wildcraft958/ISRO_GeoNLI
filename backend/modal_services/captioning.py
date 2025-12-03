@@ -2,7 +2,7 @@ import modal
 
 # --- CONFIGURATION ---
 # Point to the folder where we saved the merged model
-MERGED_MODEL_PATH = "/data/models/merged-qwen-vl-captioning"
+MERGED_MODEL_PATH = "/data/models/merged-qwen-vl"
 MODEL_NAME = "qwen-caption-special"  # The name clients will use
 
 # Use the same volume as merge script
