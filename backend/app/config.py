@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     # LangSmith settings (optional, for monitoring)
     LANGSMITH_API_KEY: Optional[str] = os.getenv("LANGSMITH_API_KEY", None)
     LANGSMITH_PROJECT: Optional[str] = os.getenv("LANGSMITH_PROJECT", None)
+    
+    # Conversation Buffer settings
+    BUFFER_MAX_MESSAGES: int = int(os.getenv("BUFFER_MAX_MESSAGES", "30"))
+    BUFFER_MAX_TOKENS: int = int(os.getenv("BUFFER_MAX_TOKENS", "8000"))
+    BUFFER_RECENT_MESSAGES: int = int(os.getenv("BUFFER_RECENT_MESSAGES", "10"))
+    BUFFER_SUMMARY_THRESHOLD: int = int(os.getenv("BUFFER_SUMMARY_THRESHOLD", "20"))
 
     class Config:
         env_file = ".env"

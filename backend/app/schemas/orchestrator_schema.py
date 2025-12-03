@@ -28,8 +28,16 @@ class AgentState(TypedDict):
     grounding_result: Optional[dict]  # {bboxes: [{x, y, w, h, label, conf}]}
     
     # Session memory
-    messages: List[dict]  # [{role, content, source, timestamp}]
-    session_context: dict  # {conversation_summary, user_prefs, execution_stats}
+    messages: List[dict]  # [{role, content, source, timestamp, is_summary?}]
+    session_context: dict  # Session context with buffer management metadata:
+    # - user_preferences: dict - User preferences from user memory
+    # - previous_summaries: List[str] - Last 3 conversation summaries
+    # - execution_stats: dict - Count of response types (caption, vqa, grounding)
+    # - last_image_url: str - Last processed image URL
+    # - buffer_summary: str - Current buffer summary (from sliding window)
+    # - buffer_token_count: int - Current token count in buffer
+    # - last_summarization_at: str - ISO timestamp of last buffer summarization
+    # - total_summarized_messages: int - Total messages summarized in session
     
     # Debugging
     execution_log: List[str]
@@ -100,6 +108,16 @@ class ChatResponse(BaseModel):
     original_image_url: Optional[str] = Field(
         default=None,
         description="Original image URL (if IR2RGB was applied)"
+    )
+    
+    # Buffer management info
+    buffer_token_count: Optional[int] = Field(
+        default=None,
+        description="Current token count in conversation buffer"
+    )
+    buffer_summarized: bool = Field(
+        default=False,
+        description="Whether buffer was summarized in this request"
     )
 
 

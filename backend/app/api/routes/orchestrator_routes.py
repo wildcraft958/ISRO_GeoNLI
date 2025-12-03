@@ -31,6 +31,7 @@ from app.schemas.orchestrator_schema import (
 from app.schemas.session_schema import SessionCreate, SessionUpdate
 from app.schemas.user_memory_schema import UserMemoryUpdate
 from app.services import memory_service
+from app.services.memory_service import get_buffer_manager
 from app.services.ir2rgb_service import get_ir2rgb_service, is_ir2rgb_available
 from app.services.modality_router import is_modality_detection_available
 from app.services.resnet_classifier_client import is_resnet_classifier_available
@@ -196,6 +197,15 @@ async def chat_endpoint(
             result.get("detected_modality") == "infrared"
         )
         
+        # Get buffer info from session context
+        session_context = result.get("session_context", {})
+        buffer_token_count = session_context.get("buffer_token_count")
+        
+        # Calculate current token count if not in context
+        if buffer_token_count is None:
+            buffer_manager = get_buffer_manager()
+            buffer_token_count = buffer_manager.count_message_tokens(messages)
+        
         # Build response
         response = ChatResponse(
             session_id=session_id,
@@ -210,6 +220,9 @@ async def chat_endpoint(
             # IR2RGB conversion result
             converted_image_url=result.get("image_url") if ir2rgb_applied else None,
             original_image_url=result.get("original_image_url"),
+            # Buffer management info
+            buffer_token_count=buffer_token_count,
+            buffer_summarized=session_context.get("last_summarization_at") is not None,
         )
         
         detected = result.get("detected_modality", "unknown")
@@ -494,10 +507,16 @@ async def persist_messages_and_update_session(
     content: Any
 ):
     """
-    Background task to persist messages and update session.
+    Background task to persist messages, update session, and manage buffer.
     
     This is called after the response is sent to the client,
     so it doesn't block the response.
+    
+    Buffer management is performed asynchronously:
+    1. Persist messages to database
+    2. Update session context with execution stats
+    3. Check if buffer needs summarization
+    4. If so, summarize older messages and update checkpoint
     """
     try:
         # Get the last user and assistant messages
@@ -570,6 +589,54 @@ async def persist_messages_and_update_session(
                 UserMemoryUpdate(frequent_queries=[query])
             )
         
+        # =========================================================================
+        # Buffer Management (async sliding window with summarization)
+        # =========================================================================
+        buffer_manager = get_buffer_manager()
+        
+        if buffer_manager.should_summarize(messages, existing_context):
+            logger.info(
+                f"Buffer threshold exceeded for session={session_id}, "
+                f"triggering async summarization..."
+            )
+            
+            try:
+                # Manage buffer: summarize older messages, keep recent ones
+                managed_messages, updated_context = await buffer_manager.manage_buffer_async(
+                    db,
+                    session_id,
+                    messages,
+                    existing_context
+                )
+                
+                # Update LangGraph checkpoint with managed buffer
+                # This ensures the next request starts with the trimmed buffer
+                await _update_langgraph_checkpoint(
+                    session_id,
+                    managed_messages,
+                    updated_context
+                )
+                
+                logger.info(
+                    f"Buffer managed for session={session_id}: "
+                    f"{len(messages)} -> {len(managed_messages)} messages, "
+                    f"tokens={updated_context.get('buffer_token_count', 'N/A')}"
+                )
+            except Exception as buffer_error:
+                logger.error(
+                    f"Buffer management failed for session={session_id}: {buffer_error}",
+                    exc_info=True
+                )
+                # Continue without failing - buffer management is best-effort
+        else:
+            # Just update token count without summarization
+            token_count = buffer_manager.count_message_tokens(messages)
+            await memory_service.update_session_context(
+                db,
+                session_id,
+                SessionUpdate(context={"buffer_token_count": token_count})
+            )
+        
         logger.debug(
             f"Persisted messages for session={session_id}, "
             f"user={user_id}, type={response_type}"
@@ -577,3 +644,48 @@ async def persist_messages_and_update_session(
     
     except Exception as e:
         logger.error(f"Failed to persist messages and update session: {e}", exc_info=True)
+
+
+async def _update_langgraph_checkpoint(
+    session_id: str,
+    managed_messages: list,
+    updated_context: dict
+):
+    """
+    Update LangGraph checkpoint with managed buffer.
+    
+    This ensures the next workflow invocation starts with the
+    summarized/trimmed message buffer instead of the full history.
+    """
+    from app.core.checkpoint import MongoDBCheckpointer
+    
+    try:
+        checkpointer = MongoDBCheckpointer()
+        config = {"configurable": {"thread_id": session_id}}
+        
+        # Get existing checkpoint
+        existing = checkpointer.get(config)
+        
+        if existing and existing.get("checkpoint"):
+            checkpoint = existing["checkpoint"]
+            
+            # Update messages and session_context in checkpoint
+            # LangGraph stores state in checkpoint["channel_values"]
+            if "channel_values" in checkpoint:
+                checkpoint["channel_values"]["messages"] = managed_messages
+                checkpoint["channel_values"]["session_context"] = updated_context
+            
+            # Save updated checkpoint
+            checkpointer.put(
+                config,
+                checkpoint,
+                metadata=existing.get("metadata", {})
+            )
+            
+            logger.debug(f"Updated LangGraph checkpoint for session={session_id}")
+        else:
+            logger.debug(f"No existing checkpoint found for session={session_id}")
+    
+    except Exception as e:
+        logger.error(f"Failed to update LangGraph checkpoint: {e}", exc_info=True)
+        raise

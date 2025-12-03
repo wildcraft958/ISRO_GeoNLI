@@ -5,12 +5,14 @@ This service handles persistence of:
 - Messages: Individual conversation messages
 - Sessions: Session context and metadata
 - User Memories: Long-term user preferences and context
+- Conversation Buffer: Token-aware sliding window management
 """
 
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timezone
 
+import tiktoken
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from langchain_openai import ChatOpenAI
 
@@ -23,6 +25,13 @@ from app.schemas.user_memory_schema import UserMemoryCreate, UserMemoryUpdate, U
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Initialize tiktoken encoder (cl100k_base is used by GPT-4, GPT-3.5-turbo)
+try:
+    _tiktoken_encoder = tiktoken.get_encoding("cl100k_base")
+except Exception as e:
+    logger.warning(f"Failed to load tiktoken encoder: {e}. Using fallback estimation.")
+    _tiktoken_encoder = None
 
 # Collection names
 MESSAGES_COLLECTION = "messages"
@@ -359,4 +368,334 @@ async def summarize_conversation(
     except Exception as e:
         logger.error(f"Failed to summarize conversation: {e}", exc_info=True)
         return None
+
+
+# =============================================================================
+# Conversation Buffer Manager
+# =============================================================================
+
+class ConversationBufferManager:
+    """
+    Manages conversation buffer with token-aware sliding window.
+    
+    Features:
+    - Token counting using tiktoken (cl100k_base encoding)
+    - Automatic summarization when thresholds are exceeded
+    - Sliding window: keeps recent N messages + summary of older messages
+    - Async-compatible for background processing
+    """
+    
+    def __init__(
+        self,
+        max_messages: Optional[int] = None,
+        max_tokens: Optional[int] = None,
+        recent_messages: Optional[int] = None,
+        summary_threshold: Optional[int] = None
+    ):
+        """
+        Initialize buffer manager with configurable limits.
+        
+        Args:
+            max_messages: Maximum messages before forced truncation (default from settings)
+            max_tokens: Maximum tokens before summarization (default from settings)
+            recent_messages: Number of recent messages to keep after summarization
+            summary_threshold: Message count threshold to trigger summarization
+        """
+        self.max_messages = max_messages or settings.BUFFER_MAX_MESSAGES
+        self.max_tokens = max_tokens or settings.BUFFER_MAX_TOKENS
+        self.recent_messages = recent_messages or settings.BUFFER_RECENT_MESSAGES
+        self.summary_threshold = summary_threshold or settings.BUFFER_SUMMARY_THRESHOLD
+        self.encoder = _tiktoken_encoder
+    
+    def count_tokens(self, text: str) -> int:
+        """
+        Count tokens in a text string using tiktoken.
+        
+        Falls back to word-based estimation if tiktoken is unavailable.
+        """
+        if not text:
+            return 0
+        
+        if self.encoder:
+            try:
+                return len(self.encoder.encode(text))
+            except Exception as e:
+                logger.warning(f"Token counting failed, using fallback: {e}")
+        
+        # Fallback: rough estimation (1 token ≈ 4 characters)
+        return len(text) // 4
+    
+    def count_message_tokens(self, messages: List[Dict[str, Any]]) -> int:
+        """
+        Count total tokens across all messages in the buffer.
+        
+        Includes role, content, and metadata in the count.
+        """
+        total_tokens = 0
+        
+        for msg in messages:
+            # Count content
+            content = msg.get("content", "")
+            total_tokens += self.count_tokens(content)
+            
+            # Count role (small overhead)
+            role = msg.get("role", "")
+            total_tokens += self.count_tokens(role)
+            
+            # Count image URL if present (as reference)
+            image_url = msg.get("image_url", "")
+            if image_url:
+                # Just count URL string, not the image itself
+                total_tokens += self.count_tokens(f"[Image: {image_url[:100]}]")
+            
+            # Add overhead for message structure (~4 tokens per message)
+            total_tokens += 4
+        
+        return total_tokens
+    
+    def should_summarize(
+        self,
+        messages: List[Dict[str, Any]],
+        session_context: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """
+        Check if buffer should be summarized based on thresholds.
+        
+        Returns True if:
+        - Message count exceeds summary_threshold
+        - Token count exceeds max_tokens
+        - Message count exceeds max_messages (forced truncation)
+        """
+        message_count = len(messages)
+        
+        # Check message count thresholds
+        if message_count >= self.max_messages:
+            logger.debug(f"Buffer exceeds max_messages ({message_count} >= {self.max_messages})")
+            return True
+        
+        if message_count >= self.summary_threshold:
+            logger.debug(f"Buffer exceeds summary_threshold ({message_count} >= {self.summary_threshold})")
+            return True
+        
+        # Check token count
+        token_count = self.count_message_tokens(messages)
+        if token_count >= self.max_tokens:
+            logger.debug(f"Buffer exceeds max_tokens ({token_count} >= {self.max_tokens})")
+            return True
+        
+        return False
+    
+    def _build_summary_prompt(self, messages_to_summarize: List[Dict[str, Any]]) -> str:
+        """Build prompt for summarizing messages."""
+        conversation_parts = []
+        
+        for msg in messages_to_summarize:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")[:500]  # Truncate very long messages
+            image_url = msg.get("image_url")
+            
+            if image_url:
+                conversation_parts.append(f"{role}: [Image provided] {content}")
+            else:
+                conversation_parts.append(f"{role}: {content}")
+        
+        conversation_text = "\n".join(conversation_parts)
+        
+        return (
+            f"Summarize the following conversation excerpt in 2-3 concise sentences. "
+            f"Focus on key topics discussed, user preferences expressed, and important context:\n\n"
+            f"{conversation_text}\n\n"
+            f"Summary:"
+        )
+    
+    def _create_summary_message(
+        self,
+        summary_text: str,
+        summarized_count: int,
+        previous_summary: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Create a summary message to prepend to the buffer.
+        
+        If there was a previous summary, it's combined with the new one.
+        """
+        if previous_summary:
+            combined_summary = f"{previous_summary}\n\nMore recently: {summary_text}"
+        else:
+            combined_summary = summary_text
+        
+        return {
+            "role": "system",
+            "content": f"[Conversation Summary]\n{combined_summary}",
+            "is_summary": True,
+            "summarized_count": summarized_count,
+            "timestamp": datetime.now(timezone.utc),
+        }
+    
+    async def summarize_messages(
+        self,
+        messages_to_summarize: List[Dict[str, Any]]
+    ) -> Optional[str]:
+        """
+        Generate a summary of the given messages using LLM.
+        
+        Returns None if summarization fails.
+        """
+        if not messages_to_summarize:
+            return None
+        
+        if not settings.OPENAI_API_KEY:
+            logger.warning("OpenAI API key not set, cannot generate buffer summary")
+            return None
+        
+        try:
+            llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+            prompt = self._build_summary_prompt(messages_to_summarize)
+            
+            response = llm.invoke(prompt)
+            summary = response.content.strip()
+            
+            logger.info(f"Generated buffer summary for {len(messages_to_summarize)} messages")
+            return summary
+        
+        except Exception as e:
+            logger.error(f"Failed to generate buffer summary: {e}", exc_info=True)
+            return None
+    
+    async def manage_buffer(
+        self,
+        messages: List[Dict[str, Any]],
+        session_context: Optional[Dict[str, Any]] = None
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """
+        Main entry point for buffer management.
+        
+        Checks if summarization is needed, and if so:
+        1. Summarizes older messages
+        2. Keeps recent N messages
+        3. Updates session_context with buffer metadata
+        
+        Returns:
+            Tuple of (managed_messages, updated_session_context)
+        """
+        session_context = session_context or {}
+        
+        if not self.should_summarize(messages, session_context):
+            # No action needed, return as-is with token count update
+            token_count = self.count_message_tokens(messages)
+            session_context["buffer_token_count"] = token_count
+            return messages, session_context
+        
+        # Separate messages: older ones to summarize, recent ones to keep
+        if len(messages) <= self.recent_messages:
+            # Not enough messages to summarize
+            token_count = self.count_message_tokens(messages)
+            session_context["buffer_token_count"] = token_count
+            return messages, session_context
+        
+        # Check if first message is already a summary
+        has_existing_summary = (
+            messages and 
+            messages[0].get("is_summary", False)
+        )
+        
+        if has_existing_summary:
+            # Exclude existing summary from messages to process
+            existing_summary_msg = messages[0]
+            previous_summary = existing_summary_msg.get("content", "").replace("[Conversation Summary]\n", "")
+            messages_to_process = messages[1:]
+        else:
+            previous_summary = session_context.get("buffer_summary")
+            messages_to_process = messages
+        
+        # Split: older messages to summarize, recent to keep
+        split_index = len(messages_to_process) - self.recent_messages
+        messages_to_summarize = messages_to_process[:split_index]
+        recent_messages = messages_to_process[split_index:]
+        
+        if not messages_to_summarize:
+            # Nothing to summarize
+            token_count = self.count_message_tokens(messages)
+            session_context["buffer_token_count"] = token_count
+            return messages, session_context
+        
+        # Generate summary
+        summary_text = await self.summarize_messages(messages_to_summarize)
+        
+        if summary_text:
+            # Create new summary message
+            summary_message = self._create_summary_message(
+                summary_text,
+                summarized_count=len(messages_to_summarize),
+                previous_summary=previous_summary
+            )
+            
+            # Build managed buffer: [summary] + recent messages
+            managed_messages = [summary_message] + recent_messages
+            
+            # Update session context
+            session_context["buffer_summary"] = summary_message["content"]
+            session_context["buffer_token_count"] = self.count_message_tokens(managed_messages)
+            session_context["last_summarization_at"] = datetime.now(timezone.utc).isoformat()
+            session_context["total_summarized_messages"] = (
+                session_context.get("total_summarized_messages", 0) + len(messages_to_summarize)
+            )
+            
+            logger.info(
+                f"Buffer managed: {len(messages)} -> {len(managed_messages)} messages, "
+                f"summarized {len(messages_to_summarize)} messages"
+            )
+            
+            return managed_messages, session_context
+        else:
+            # Summarization failed, fall back to simple truncation
+            logger.warning("Summarization failed, falling back to truncation")
+            
+            # Keep only recent messages (no summary)
+            managed_messages = messages[-self.recent_messages:]
+            session_context["buffer_token_count"] = self.count_message_tokens(managed_messages)
+            session_context["buffer_truncated_at"] = datetime.now(timezone.utc).isoformat()
+            
+            return managed_messages, session_context
+    
+    async def manage_buffer_async(
+        self,
+        db: AsyncIOMotorDatabase,
+        session_id: str,
+        messages: List[Dict[str, Any]],
+        session_context: Optional[Dict[str, Any]] = None
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """
+        Async version that also persists buffer updates to database.
+        
+        This is the preferred method for background task integration.
+        """
+        managed_messages, updated_context = await self.manage_buffer(
+            messages, session_context
+        )
+        
+        # Persist context updates to session
+        try:
+            await update_session_context(
+                db,
+                session_id,
+                SessionUpdate(context=updated_context)
+            )
+            logger.debug(f"Persisted buffer context for session {session_id}")
+        except Exception as e:
+            logger.error(f"Failed to persist buffer context: {e}", exc_info=True)
+        
+        return managed_messages, updated_context
+
+
+# Singleton instance for easy access
+_buffer_manager: Optional[ConversationBufferManager] = None
+
+
+def get_buffer_manager() -> ConversationBufferManager:
+    """Get or create the singleton buffer manager instance."""
+    global _buffer_manager
+    if _buffer_manager is None:
+        _buffer_manager = ConversationBufferManager()
+    return _buffer_manager
 
