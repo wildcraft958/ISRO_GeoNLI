@@ -2,11 +2,11 @@ import modal
 
 # --- CONFIGURATION ---
 # Point to the folder where we saved the merged model
-MERGED_MODEL_PATH = "/data/models/merged-qwen-vl-vqa"
-MODEL_NAME = "qwen-vqa-special"  # The name clients will use
+MERGED_MODEL_PATH = "/data/models/merged-qwen-vl-captioning"
+MODEL_NAME = "qwen-caption-special"  # The name clients will use
 
 # Use the same volume as merge script
-vol = modal.Volume.from_name("vlm-weights-merged-vqa-special")
+vol = modal.Volume.from_name("vlm-weights-merged-caption-special")
 
 # Standard vLLM image with latest version
 image = (
@@ -23,14 +23,14 @@ image = (
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
 
-app = modal.App("qwen3-vlm-vqa")
+app = modal.App("qwen3-vlm-captioning")
 
 # Global LLM instance (cached per container)
 _llm_cache = None
 
 @app.function(
     image=image,
-    gpu="A100-80GB",
+    gpu="A100",  # 40GB A100 - sufficient for 8B models with FP16
     volumes={"/data/models": vol},
     timeout=600,  # 10 minutes per job
     scaledown_window=300,  # Keep container warm for 5 min
@@ -56,7 +56,7 @@ def process_inference_job(
         _llm_cache = LLM(
             model=MERGED_MODEL_PATH,
             limit_mm_per_prompt={"image": 1},
-            gpu_memory_utilization=0.94,
+            gpu_memory_utilization=0.88,  # Reduced for 40GB A100 safety margin
             tensor_parallel_size=1,
             enforce_eager=True,
             max_num_seqs=4,
@@ -125,10 +125,10 @@ def process_inference_job(
 
 @app.function(
     image=image,
-    gpu="A100-80GB",  # 80GB for Qwen3-VL-8B
+    gpu="A100",  # 40GB A100 - sufficient for 8B models with FP16
     volumes={"/data/models": vol},
     scaledown_window=300,
-    min_containers=1,  # keep one warm replica to avoid cold starts
+    # min_containers removed to stay within 2 A100 limit (containers spin up on-demand)
 )
 @modal.concurrent(max_inputs=10)
 @modal.asgi_app()
@@ -149,7 +149,7 @@ def serve():
     llm = LLM(
         model=MERGED_MODEL_PATH,
         limit_mm_per_prompt={"image": 1},
-        gpu_memory_utilization=0.94,
+        gpu_memory_utilization=0.88,  # Reduced for 40GB A100 safety margin
         tensor_parallel_size=1,
         enforce_eager=True,
         max_num_seqs=4,
@@ -344,7 +344,7 @@ def serve():
             # Look up the deployed function
             try:
                 inference_job = modal.Function.from_name(
-                    "qwen3-vlm-vqa", "process_inference_job"
+                    "qwen3-vlm-captioning", "process_inference_job"
                 )
             except Exception as e:
                 return JSONResponse(
