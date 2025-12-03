@@ -30,7 +30,7 @@ _llm_cache = None
 
 @app.function(
     image=image,
-    gpu="A100",  # 40GB A100 - sufficient for 8B models with FP16
+    gpu="A100-80GB",  # 40GB A100-80GB - sufficient for 8B models with FP16
     volumes={"/data/models": vol},
     timeout=600,  # 10 minutes per job
     scaledown_window=300,  # Keep container warm for 5 min
@@ -56,7 +56,7 @@ def process_inference_job(
         _llm_cache = LLM(
             model=MERGED_MODEL_PATH,
             limit_mm_per_prompt={"image": 1},
-            gpu_memory_utilization=0.88,  # Reduced for 40GB A100 safety margin
+            gpu_memory_utilization=0.88,  # Reduced for 40GB A100-80GB safety margin
             tensor_parallel_size=1,
             enforce_eager=True,
             max_num_seqs=4,
@@ -125,10 +125,10 @@ def process_inference_job(
 
 @app.function(
     image=image,
-    gpu="A100",  # 40GB A100 - sufficient for 8B models with FP16
+    gpu="A100-80GB",  # 40GB A100-80GB - sufficient for 8B models with FP16
     volumes={"/data/models": vol},
     scaledown_window=300,
-    # min_containers removed to stay within 2 A100 limit (containers spin up on-demand)
+    # min_containers removed to stay within 2 A100-80GB limit (containers spin up on-demand)
 )
 @modal.concurrent(max_inputs=10)
 @modal.asgi_app()
@@ -149,7 +149,7 @@ def serve():
     llm = LLM(
         model=MERGED_MODEL_PATH,
         limit_mm_per_prompt={"image": 1},
-        gpu_memory_utilization=0.88,  # Reduced for 40GB A100 safety margin
+        gpu_memory_utilization=0.88,  # Reduced for 40GB A100-80GB safety margin
         tensor_parallel_size=1,
         enforce_eager=True,
         max_num_seqs=4,
