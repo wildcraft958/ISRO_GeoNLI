@@ -30,8 +30,11 @@ interface ChatInputProps {
   mode: Mode;
   setMode: (mode: Mode) => void;
   onFocusChange?: (isFocused: boolean) => void;
-    setSelectedImage: React.Dispatch<React.SetStateAction<string>>;
+    setSelectedImage: React.Dispatch<React.SetStateAction<string | null>>;
     setImageUploaded:React.Dispatch<React.SetStateAction<boolean>>;
+    imageUploaded: boolean;
+    imgFile: File | null;
+    setImgFile: React.Dispatch<React.SetStateAction<File | null>>;
   onNewChat?: () => void;
 }
 
@@ -44,11 +47,13 @@ export function ChatInput({
   setSelectedImage,
   onFocusChange,
   onNewChat,
-  setImageUploaded
+  setImageUploaded,
+  imageUploaded,
+  imgFile,
+  setImgFile
 }: ChatInputProps) {
   const { user } = useUser();
   const [content, setContent] = useState("");
-  const [imgFile, setImgFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [chatId,setChatId]=useState<string|null>(null)
@@ -127,6 +132,7 @@ export function ChatInput({
       reader.onloadend = () => {
         setSelectedImage(reader.result as string);
         setImgFile(file); // <--- make sure we set the File object used by uploadImage
+        setImageUploaded(true); // Mark image as uploaded when selected
       };
       reader.readAsDataURL(file);
 
@@ -151,6 +157,7 @@ export function ChatInput({
       const data = await readFileAsDataUrl(file);
       setSelectedImage(data);
       setImgFile(file);
+      setImageUploaded(true); // Mark image as uploaded when dropped/pasted
     } catch (err) {
       console.error("Failed to read dropped file", err);
     }
@@ -245,8 +252,8 @@ export function ChatInput({
   };
 
   const handleSendClick = async () => {
-    // guard: don't send if backend processing or image uploading
-    if ((content.trim() || selectedImage) && !isProcessing && !isUploadingImage) {
+    // guard: don't send if backend processing, image uploading, or no image uploaded
+    if ((content.trim() || selectedImage) && !isProcessing && !isUploadingImage && imageUploaded) {
       const image_url = selectedImage ? await uploadImage(user?.id) : undefined;
 
       // store in chats if image_url is defined
@@ -490,13 +497,15 @@ export function ChatInput({
               placeholder={
                 isListening
                   ? ""
-                  : mode === "grounding"
-                    ? "Describe objects to locate..."
-                    : "Ask anything about the satellite data..."
+                  : !imageUploaded
+                    ? "Please upload an image first to start chatting..."
+                    : mode === "grounding"
+                      ? "Describe objects to locate..."
+                      : "Ask anything about the satellite data..."
               }
               rows={1}
               className="w-full bg-transparent text-cyan-100 placeholder-cyan-700/50 px-4 py-4 focus:outline-none resize-none scrollbar-none min-h-14 text-[15px] relative z-10"
-              disabled={isProcessing}
+              disabled={isProcessing || !imageUploaded}
             />
 
             {/* --- Listening Animation Overlay (Cyan Theme) --- */}
@@ -575,15 +584,18 @@ export function ChatInput({
               {/* Voice Input Button (Cyan Theme active state) */}
               <button
                 onClick={toggleVoiceInput}
+                disabled={!imageUploaded}
                 className={`
                             p-2 transition-all duration-300 rounded-lg
                             ${
-                              isListening
-                                ? "bg-cyan-500/20 text-cyan-400 animate-pulse shadow-[0_0_10px_rgba(34,211,238,0.3)]"
-                                : "text-cyan-600 hover:text-cyan-300 hover:bg-cyan-900/20"
+                              !imageUploaded
+                                ? "text-cyan-800 cursor-not-allowed opacity-50"
+                                : isListening
+                                  ? "bg-cyan-500/20 text-cyan-400 animate-pulse shadow-[0_0_10px_rgba(34,211,238,0.3)]"
+                                  : "text-cyan-600 hover:text-cyan-300 hover:bg-cyan-900/20"
                             }
                         `}
-                title="Voice Input"
+                title={!imageUploaded ? "Please upload an image first" : "Voice Input"}
               >
                 {isListening ? <MicOff size={18} /> : <Mic size={18} />}
               </button>
@@ -610,16 +622,16 @@ export function ChatInput({
 
               <button
                 onClick={handleSendClick}
-                disabled={(!content.trim() && !selectedImage) || isProcessing || isUploadingImage}
+                disabled={(!content.trim() && !selectedImage) || isProcessing || isUploadingImage || !imageUploaded}
                 className={`
                         p-2 rounded-lg transition-all duration-300
                         ${
-                          (content.trim() || selectedImage) && !isProcessing && !isUploadingImage
+                          (content.trim() || selectedImage) && !isProcessing && !isUploadingImage && imageUploaded
                             ? "bg-cyan-500 text-black shadow-lg shadow-cyan-500/20 hover:bg-cyan-400 transform hover:scale-105"
                             : "bg-cyan-900/20 text-cyan-800 cursor-not-allowed"
                         }
                         `}
-                title={isUploadingImage ? "Uploading image…" : "Send"}
+                title={!imageUploaded ? "Please upload an image first" : isUploadingImage ? "Uploading image…" : "Send"}
               >
                 <Send size={18} />
               </button>

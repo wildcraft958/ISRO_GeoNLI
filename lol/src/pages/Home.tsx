@@ -329,6 +329,9 @@ export default function Home() {
                     setSelectedImage={setSelectedImage}
                     onNewChat={handleNewChat}
                     setImageUploaded={setImageUploaded}
+                    imageUploaded={imageUploaded}
+                    imgFile={imgFile}
+                    setImgFile={setImgFile}
                   />
                 </div>
               </div>
