@@ -2,7 +2,7 @@ export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
 export const ROUTES = {
   USER_SYNC: "/user/sync",
-  IMAGE_UPLOAD: "/upload_image",
+  IMAGE_UPLOAD: "/image/upload",
   CHAT_CREATE: "/chat/create",
   CHAT_MESSAGE: "/chat/message",
   GET_CHATS: "/chats",

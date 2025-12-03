@@ -105,11 +105,24 @@ export function ChatInput({
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+
+      // Only accept images
+      if (!file.type.startsWith("image/")) {
+        console.warn("Selected file is not an image.");
+        e.target.value = "";
+        return;
+      }
+
       const reader = new FileReader();
-      reader.onloadend = () => setSelectedImage(reader.result as string);
+      reader.onloadend = () => {
+        setSelectedImage(reader.result as string);
+        setImgFile(file); // <--- make sure we set the File object used by uploadImage
+      };
       reader.readAsDataURL(file);
+
+      // clear input so same-file re-selects will trigger onChange again
+      e.target.value = "";
     }
-    e.target.value = "";
   };
 
   const readFileAsDataUrl = (file: File) => {
@@ -216,6 +229,7 @@ export function ChatInput({
   const handleSendClick = async () => {
     if ((content.trim() || selectedImage) && !isProcessing) {
       const image_url = selectedImage ? await uploadImage(user?.id) : undefined;
+      console.log(image_url);
       const data = {
         text: content,
         image_url: image_url,
