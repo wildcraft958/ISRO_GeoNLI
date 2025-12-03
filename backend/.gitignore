@@ -15,3 +15,5 @@ __pycache__/
 # uv
 .uv/
 uv.lock
+
+venv/
