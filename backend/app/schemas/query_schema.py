@@ -12,6 +12,7 @@ class QueryCreate(BaseModel):
 
 class QueryInDB(BaseModel):
     id: str
+    
     parent_id: str
     chat_id: str
     request: str

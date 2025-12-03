@@ -6,5 +6,4 @@ def chat_to_public(chat: Mapping[str, Any]) -> dict:
         "id": str(chat["_id"]),
         "image_url": chat["image_url"],
         "user_id": chat["user_id"],
-        "created_at": chat["created_at"],
     }
