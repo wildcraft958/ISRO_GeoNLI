@@ -47,6 +47,9 @@ export function ChatInput({
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [isListening, setIsListening] = useState(false);
 
+  // NEW: tracks whether image is currently uploading to S3/backend
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -194,7 +197,10 @@ export function ChatInput({
   };
 
   const handleRemoveImage = () => {
+    // prevent removing while uploading
+    if (isUploadingImage) return;
     setSelectedImage(null);
+    setImgFile(null);
   };
 
   const uploadImage = async (userId?: string) => {
@@ -206,6 +212,7 @@ export function ChatInput({
     formData.append("file", imgFile);
 
     try {
+      setIsUploadingImage(true); // <-- show loader & disable send
       const url = new URL(`${BACKEND_URL}${ROUTES.IMAGE_UPLOAD}`);
       if (userId) {
         url.searchParams.append("user_id", userId);
@@ -224,10 +231,14 @@ export function ChatInput({
       }
     } catch (error) {
       console.error("Image upload failed:", error);
+    } finally {
+      setIsUploadingImage(false); // <-- hide loader regardless of success/failure
     }
   };
+
   const handleSendClick = async () => {
-    if ((content.trim() || selectedImage) && !isProcessing) {
+    // guard: don't send if backend processing or image uploading
+    if ((content.trim() || selectedImage) && !isProcessing && !isUploadingImage) {
       const image_url = selectedImage ? await uploadImage(user?.id) : undefined;
       console.log(image_url);
       const data = {
@@ -404,12 +415,45 @@ export function ChatInput({
                   alt="Selected"
                   className="h-16 w-16 object-cover rounded-lg border border-cyan-500/30 shadow-lg"
                 />
+                {/* Remove button disabled while uploading */}
                 <button
                   onClick={handleRemoveImage}
-                  className="absolute -top-2 -right-2 bg-black/80 text-white rounded-full p-0.5 border border-cyan-500/50 hover:bg-red-500/20 hover:border-red-500 transition-colors"
+                  className={`absolute -top-2 -right-2 bg-black/80 text-white rounded-full p-0.5 border border-cyan-500/50 hover:bg-red-500/20 hover:border-red-500 transition-colors ${isUploadingImage ? "cursor-not-allowed opacity-70" : ""}`}
+                  title={isUploadingImage ? "Uploading..." : "Remove image"}
                 >
                   <X size={12} />
                 </button>
+
+                {/* Uploading overlay */}
+                {isUploadingImage && (
+                  <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-1">
+                      {/* simple spinner using tailwind animate-spin + svg */}
+                      <svg
+                        className="w-6 h-6 animate-spin"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                      >
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                          strokeOpacity="0.15"
+                        ></circle>
+                        <path
+                          d="M22 12a10 10 0 00-10-10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                          strokeLinecap="round"
+                        ></path>
+                      </svg>
+                      <span className="text-xs text-cyan-100">Uploading...</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -527,6 +571,7 @@ export function ChatInput({
                 onClick={() => fileInputRef.current?.click()}
                 className={`p-2 transition-colors rounded-lg hover:bg-cyan-900/20 ${selectedImage ? "text-cyan-400" : "text-cyan-600 hover:text-cyan-300"}`}
                 title="Upload Image"
+                disabled={isUploadingImage} // prevent opening new selection while uploading
               >
                 <ImageIcon size={18} />
               </button>
@@ -544,15 +589,16 @@ export function ChatInput({
 
               <button
                 onClick={handleSendClick}
-                disabled={(!content.trim() && !selectedImage) || isProcessing}
+                disabled={(!content.trim() && !selectedImage) || isProcessing || isUploadingImage}
                 className={`
                         p-2 rounded-lg transition-all duration-300
                         ${
-                          (content.trim() || selectedImage) && !isProcessing
+                          (content.trim() || selectedImage) && !isProcessing && !isUploadingImage
                             ? "bg-cyan-500 text-black shadow-lg shadow-cyan-500/20 hover:bg-cyan-400 transform hover:scale-105"
                             : "bg-cyan-900/20 text-cyan-800 cursor-not-allowed"
                         }
                         `}
+                title={isUploadingImage ? "Uploading image…" : "Send"}
               >
                 <Send size={18} />
               </button>
