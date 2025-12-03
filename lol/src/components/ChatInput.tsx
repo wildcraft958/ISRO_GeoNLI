@@ -9,6 +9,7 @@ import {
   X,
   Mic,
   MicOff,
+  
   Upload,
 } from "lucide-react";
 import type { Mode } from "../pages/Home";
@@ -25,9 +26,12 @@ declare global {
 interface ChatInputProps {
   onSend: (data: { text: string; image_url?: string }, userId?: string) => void;
   isProcessing: boolean;
+    selectedImage: string | null;
   mode: Mode;
   setMode: (mode: Mode) => void;
   onFocusChange?: (isFocused: boolean) => void;
+    setSelectedImage: React.Dispatch<React.SetStateAction<string>>;
+    setImageUploaded:React.Dispatch<React.SetStateAction<boolean>>;
   onNewChat?: () => void;
 }
 
@@ -36,15 +40,18 @@ export function ChatInput({
   isProcessing,
   mode,
   setMode,
+  selectedImage,
+  setSelectedImage,
   onFocusChange,
   onNewChat,
+  setImageUploaded
 }: ChatInputProps) {
   const { user } = useUser();
   const [content, setContent] = useState("");
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imgFile, setImgFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showSlashMenu, setShowSlashMenu] = useState(false);
+  const [chatId,setChatId]=useState<string|null>(null)
   const [isListening, setIsListening] = useState(false);
 
   // NEW: tracks whether image is currently uploading to S3/backend
@@ -200,6 +207,7 @@ export function ChatInput({
     // prevent removing while uploading
     if (isUploadingImage) return;
     setSelectedImage(null);
+    setImageUploaded(false)
     setImgFile(null);
   };
 
@@ -314,6 +322,15 @@ export function ChatInput({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {/*{!chatId &&
+       <div
+           className="w-14 h-14 bg-cyan-400/10 border border-cyan-500/30 rounded-xl
+                      flex items-center justify-center cursor-pointer absolute "
+           onClick={() => fileInputRef.current?.click()}
+         >
+           <Upload size={28} className="text-cyan-300" />
+         </div> 
+      }*/}
       {/* --- Inject Styles for Wave Animation --- */}
       <style>{`
         @keyframes sound-wave {\n          0%, 100% { height: 4px; opacity: 0.5; }
@@ -345,7 +362,7 @@ export function ChatInput({
               Options
             </div>
             <button
-              onMouseDown={(e) => selectMode("question", e)}
+              onMouseDown={(e) => selectMode("vqa", e)}
               className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-cyan-500/10 transition-colors group/item cursor-pointer"
             >
               <div className="p-1.5 rounded bg-blue-500/20 text-blue-400 group-hover/item:text-blue-300">
@@ -357,7 +374,7 @@ export function ChatInput({
               </div>
             </button>
             <button
-              onMouseDown={(e) => selectMode("caption", e)}
+              onMouseDown={(e) => selectMode("captioning", e)}
               className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-cyan-500/10 transition-colors group/item cursor-pointer"
             >
               <div className="p-1.5 rounded bg-blue-500/20 text-blue-400 group-hover/item:text-blue-300">
@@ -530,16 +547,16 @@ export function ChatInput({
             {/* Mode Tabs - Visible only on larger screens (md and up) */}
             <div className="hidden md:flex items-center gap-1.5">
               <ModePill
-                active={mode === "question"}
+                active={mode === "vqa"}
                 icon={<MessageSquare size={13} />}
                 label="VQA"
-                onClick={() => setMode("question")}
+                onClick={() => setMode("vqa")}
               />
               <ModePill
-                active={mode === "caption"}
+                active={mode === "captioning"}
                 icon={<Sparkles size={13} />}
                 label="Caption"
-                onClick={() => setMode("caption")}
+                onClick={() => setMode("captioning")}
               />
               <ModePill
                 active={mode === "grounding"}
@@ -611,16 +628,16 @@ export function ChatInput({
       <div className="mt-4 flex justify-center md:hidden">
         <div className="inline-flex items-center gap-1.5 bg-linear-to-r from-cyan-500/20 to-blue-600/20 backdrop-blur-md border border-cyan-500/40 rounded-full p-1 shadow-lg shadow-cyan-500/30">
           <ModePill
-            active={mode === "question"}
+            active={mode === "vqa"}
             icon={<MessageSquare size={13} />}
             label="VQA"
-            onClick={() => setMode("question")}
+            onClick={() => setMode("vqa")}
           />
           <ModePill
-            active={mode === "caption"}
+            active={mode === "captioning"}
             icon={<Sparkles size={13} />}
             label="Caption"
-            onClick={() => setMode("caption")}
+            onClick={() => setMode("captioning")}
           />
           <ModePill
             active={mode === "grounding"}

@@ -16,6 +16,7 @@ import { ProcessingIndicator } from "../components/ProcessingIndicator";
 import groundingAnnotated from "../assets/sat_demo.jpg";
 import radar from "@/assets/radar.json";
 import { routes } from "@/lib/api";
+import DropZone from "@/components/Dropzone";
 
 export interface Message {
   id: string;
@@ -30,9 +31,12 @@ export type Mode = "captioning" | "vqa" | "grounding";
 export default function Home() {
   const { user } = useUser();
   const [currentPage, setCurrentPage] = useState<string>("chat");
+    const [imageUploaded, setImageUploaded] = useState<boolean>(false);
+  const [imgFile, setImgFile] = useState<File | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedImage,setSelectedImage]=useState<string|null>(null)
   const [mode, setMode] = useState<Mode>("vqa");
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -274,6 +278,7 @@ export default function Home() {
                   bottom: "0",
                 }}
               >
+                {!imageUploaded && <DropZone setimageUploaded={setImageUploaded} selectedImage={selectedImage} setSelectedImage={setSelectedImage} setImgFile={setImgFile} />}
                 <div
                   className="max-w-3xl mx-auto"
                   style={{ marginLeft: isSidebarOpen ? "auto" : "auto" }}
@@ -283,7 +288,10 @@ export default function Home() {
                     isProcessing={isProcessing}
                     mode={mode}
                     setMode={setMode}
+                    selectedImage={selectedImage}
+                    setSelectedImage={setSelectedImage}
                     onNewChat={handleNewChat}
+                    setImageUploaded={setImageUploaded}
                   />
                 </div>
               </div>
