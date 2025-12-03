@@ -1,1 +1,0 @@
-# ISRO GeoNLI UI
