@@ -1,28 +1,47 @@
 # Qwen3-VL Async Inference API Documentation
 
-This document describes how to integrate with the async job queue API for Qwen3-VL satellite imagery captioning.
+This document describes how to integrate with the async job queue API for Qwen3-VL satellite imagery **Captioning** and **VQA** services.
 
-## Base URL
 
+**URLs:
 ```
-https://maximuspookus--qwen3-vlm-caption-serve.modal.run
+CAPTION_BASE_URL=https://maximuspookus--qwen3-vlm-captioning-serve.modal.run
+VQA_BASE_URL=https://maximuspookus--qwen3-vlm-vqa-serve.modal.run
 ```
+
+---
 
 ## Overview
 
-The API supports two modes:
-- **Synchronous**: `/v1/chat/completions` - Blocks until inference completes
-- **Asynchronous**: `/v1/chat/completions/async` + `/v1/chat/completions/status/{call_id}` - Non-blocking job queue pattern
+Both services expose identical API interfaces with two modes:
+
+- **Synchronous**: `POST /v1/chat/completions` – Blocks until inference completes
+- **Asynchronous**: `POST /v1/chat/completions/async` + `GET /v1/chat/completions/status/{call_id}` – Non-blocking job queue pattern
 
 For production applications, use the async endpoints to maintain responsiveness and handle high concurrency.
 
 ---
 
+## Model Information
+
+| Property | Captioning Service | VQA Service |
+|----------|-------------------|-------------|
+| **Model Name** | `qwen-caption-special` | `qwen-vqa-special` |
+| **Base Model** | Qwen3-VL-8B-Instruct | Qwen3-VL-8B-Instruct |
+| **Fine-tuned for** | Satellite imagery captioning | Visual Question Answering |
+| **GPU** | A100 (40GB) | A100 (40GB) |
+| **Volume** | `vlm-weights-merged-caption-special` | `vlm-weights-merged-vqa-special` |
+| **Max Tokens** | 512 (configurable) | 512 (configurable) |
+| **Timeout** | 10 minutes | 10 minutes |
+| **Scaledown Window** | 5 minutes | 5 minutes |
+
+---
+
 ## Async Workflow
 
-1. **Submit Job**: POST to `/v1/chat/completions/async` → Receive `call_id`
-2. **Poll Status**: GET `/v1/chat/completions/status/{call_id}` → Check job status
-3. **Get Result**: When status is `200`, extract the generated caption
+1. **Submit Job**: `POST /v1/chat/completions/async` → Receive `call_id`
+2. **Poll Status**: `GET /v1/chat/completions/status/{call_id}` → Check job status
+3. **Get Result**: When status is `200`, extract the generated response
 
 ---
 
@@ -32,7 +51,7 @@ For production applications, use the async endpoints to maintain responsiveness 
 
 **Endpoint**: `POST /v1/chat/completions/async`
 
-**Request Body**:
+**Request Body** (Captioning example):
 ```json
 {
   "model": "qwen-caption-special",
@@ -55,6 +74,32 @@ For production applications, use the async endpoints to maintain responsiveness 
   ],
   "max_tokens": 512,
   "temperature": 0.7
+}
+```
+
+**Request Body** (VQA example):
+```json
+{
+  "model": "qwen-vqa-special",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "How many ships are visible in this harbor?"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANS..."
+          }
+        }
+      ]
+    }
+  ],
+  "max_tokens": 128,
+  "temperature": 0.0
 }
 ```
 
@@ -131,6 +176,31 @@ For production applications, use the async endpoints to maintain responsiveness 
 
 ---
 
+### 3. Synchronous Inference
+
+**Endpoint**: `POST /v1/chat/completions`
+
+Same request format as async, but blocks until inference completes. Use for:
+- Testing and development
+- Low-volume applications
+- When you need immediate results
+
+---
+
+### 4. Health Check
+
+**Endpoint**: `GET /health`
+
+**Response**:
+```json
+{
+  "status": "ok",
+  "model": "qwen-caption-special"
+}
+```
+
+---
+
 ## Python Integration Examples
 
 ### Basic Async Client
@@ -141,16 +211,26 @@ import base64
 import httpx
 from pathlib import Path
 
-API_BASE_URL = "https://maximuspookus--qwen3-vlm-caption-serve.modal.run"
+# Choose your service
+CAPTION_BASE_URL = "https://maximuspookus--qwen3-vlm-captioning-serve.modal.run"
+VQA_BASE_URL = "https://maximuspookus--qwen3-vlm-vqa-serve.modal.run"
 
-async def submit_async_job(image_path: str, prompt: str = "Describe this satellite image in detail."):
+
+async def submit_async_job(
+    base_url: str,
+    model: str,
+    image_path: str,
+    prompt: str,
+    max_tokens: int = 512,
+    temperature: float = 0.7
+) -> str:
     """Submit an async inference job."""
     # Load and encode image
     with open(image_path, "rb") as f:
         image_b64 = base64.b64encode(f.read()).decode("utf-8")
     
     payload = {
-        "model": "qwen-caption-special",
+        "model": model,
         "messages": [
             {
                 "role": "user",
@@ -163,13 +243,13 @@ async def submit_async_job(image_path: str, prompt: str = "Describe this satelli
                 ]
             }
         ],
-        "max_tokens": 512,
-        "temperature": 0.7
+        "max_tokens": max_tokens,
+        "temperature": temperature
     }
     
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{API_BASE_URL}/v1/chat/completions/async",
+            f"{base_url}/v1/chat/completions/async",
             json=payload,
             timeout=30.0
         )
@@ -177,7 +257,12 @@ async def submit_async_job(image_path: str, prompt: str = "Describe this satelli
         return response.json()["call_id"]
 
 
-async def poll_job_status(call_id: str, max_wait: int = 300, poll_interval: float = 2.0):
+async def poll_job_status(
+    base_url: str,
+    call_id: str,
+    max_wait: int = 300,
+    poll_interval: float = 2.0
+) -> str:
     """Poll for job result until complete or timeout."""
     async with httpx.AsyncClient() as client:
         start_time = asyncio.get_event_loop().time()
@@ -188,7 +273,7 @@ async def poll_job_status(call_id: str, max_wait: int = 300, poll_interval: floa
                 raise TimeoutError(f"Job {call_id} did not complete within {max_wait}s")
             
             response = await client.get(
-                f"{API_BASE_URL}/v1/chat/completions/status/{call_id}",
+                f"{base_url}/v1/chat/completions/status/{call_id}",
                 timeout=10.0
             )
             
@@ -212,19 +297,58 @@ async def poll_job_status(call_id: str, max_wait: int = 300, poll_interval: floa
                 response.raise_for_status()
 
 
-async def process_image_async(image_path: str, prompt: str = "Describe this satellite image in detail."):
-    """Complete async workflow: submit job and wait for result."""
-    call_id = await submit_async_job(image_path, prompt)
-    print(f"Job submitted: {call_id}")
+# =============================================================================
+# Captioning Example
+# =============================================================================
+async def caption_image(image_path: str) -> str:
+    """Generate a caption for a satellite image."""
+    call_id = await submit_async_job(
+        base_url=CAPTION_BASE_URL,
+        model="qwen-caption-special",
+        image_path=image_path,
+        prompt="Describe this satellite image in detail.",
+        max_tokens=512,
+        temperature=0.7
+    )
+    print(f"Captioning job submitted: {call_id}")
     
-    result = await poll_job_status(call_id)
+    result = await poll_job_status(CAPTION_BASE_URL, call_id)
     return result
 
 
-# Example usage
+# =============================================================================
+# VQA Example
+# =============================================================================
+async def ask_question(image_path: str, question: str) -> str:
+    """Ask a question about a satellite image."""
+    call_id = await submit_async_job(
+        base_url=VQA_BASE_URL,
+        model="qwen-vqa-special",
+        image_path=image_path,
+        prompt=question,
+        max_tokens=128,
+        temperature=0.0  # Deterministic for factual answers
+    )
+    print(f"VQA job submitted: {call_id}")
+    
+    result = await poll_job_status(VQA_BASE_URL, call_id)
+    return result
+
+
+# =============================================================================
+# Usage
+# =============================================================================
 async def main():
-    caption = await process_image_async("sample1.png")
+    image_path = "sample_satellite.png"
+    
+    # Captioning
+    caption = await caption_image(image_path)
     print(f"Caption: {caption}")
+    
+    # VQA
+    answer = await ask_question(image_path, "How many buildings are visible?")
+    print(f"Answer: {answer}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -237,48 +361,83 @@ if __name__ == "__main__":
 ```python
 import asyncio
 import httpx
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
-async def process_batch_async(image_paths: List[str], prompt: str = "Describe this satellite image."):
+async def process_batch_async(
+    base_url: str,
+    model: str,
+    image_prompt_pairs: List[Tuple[str, str]],
+    max_tokens: int = 256
+) -> Dict[str, str]:
     """Process multiple images concurrently using async jobs."""
+    
     # Submit all jobs
     call_ids = []
-    async with httpx.AsyncClient() as client:
-        for image_path in image_paths:
-            # ... (submit job logic from above)
-            call_id = await submit_async_job(image_path, prompt)
-            call_ids.append((image_path, call_id))
+    for image_path, prompt in image_prompt_pairs:
+        call_id = await submit_async_job(
+            base_url=base_url,
+            model=model,
+            image_path=image_path,
+            prompt=prompt,
+            max_tokens=max_tokens
+        )
+        call_ids.append((image_path, call_id))
+        print(f"Submitted: {image_path} -> {call_id}")
     
     # Poll all jobs (with exponential backoff)
     results = {}
+    pending = {call_id: image_path for image_path, call_id in call_ids}
+    poll_interval = 1.0
+    
     async with httpx.AsyncClient() as client:
-        pending = {call_id: image_path for image_path, call_id in call_ids}
-        poll_interval = 1.0
-        
         while pending:
             tasks = [
-                client.get(f"{API_BASE_URL}/v1/chat/completions/status/{call_id}")
+                client.get(f"{base_url}/v1/chat/completions/status/{call_id}")
                 for call_id in pending.keys()
             ]
             responses = await asyncio.gather(*tasks, return_exceptions=True)
             
-            for call_id, response in zip(pending.keys(), responses):
+            completed = []
+            for call_id, response in zip(list(pending.keys()), responses):
                 if isinstance(response, Exception):
                     continue
                 
                 if response.status_code == 200:
                     result = response.json()
-                    image_path = pending.pop(call_id)
+                    image_path = pending[call_id]
                     results[image_path] = result["choices"][0]["message"]["content"]
+                    completed.append(call_id)
                 elif response.status_code == 404:
-                    image_path = pending.pop(call_id)
+                    image_path = pending[call_id]
                     results[image_path] = None  # Expired
+                    completed.append(call_id)
+            
+            for call_id in completed:
+                del pending[call_id]
             
             if pending:
                 await asyncio.sleep(poll_interval)
                 poll_interval = min(poll_interval * 1.5, 10.0)  # Exponential backoff
     
     return results
+
+
+# Usage
+async def batch_caption():
+    images = [
+        ("image1.png", "Describe this satellite image."),
+        ("image2.png", "Describe this satellite image."),
+        ("image3.png", "Describe this satellite image."),
+    ]
+    
+    results = await process_batch_async(
+        base_url=CAPTION_BASE_URL,
+        model="qwen-caption-special",
+        image_prompt_pairs=images
+    )
+    
+    for path, caption in results.items():
+        print(f"{path}: {caption[:100]}...")
 ```
 
 ---
@@ -289,13 +448,17 @@ async def process_batch_async(image_paths: List[str], prompt: str = "Describe th
 import httpx
 from typing import Optional
 
-async def safe_poll_job(call_id: str, max_retries: int = 3) -> Optional[str]:
+async def safe_poll_job(
+    base_url: str,
+    call_id: str,
+    max_retries: int = 3
+) -> Optional[str]:
     """Poll job with retry logic and proper error handling."""
     async with httpx.AsyncClient() as client:
         for attempt in range(max_retries):
             try:
                 response = await client.get(
-                    f"{API_BASE_URL}/v1/chat/completions/status/{call_id}",
+                    f"{base_url}/v1/chat/completions/status/{call_id}",
                     timeout=10.0
                 )
                 
@@ -336,7 +499,9 @@ async def safe_poll_job(call_id: str, max_retries: int = 3) -> Optional[str]:
 ## JavaScript/TypeScript Integration
 
 ```typescript
-const API_BASE_URL = "https://maximuspookus--qwen3-vlm-caption-serve.modal.run";
+// Configuration
+const CAPTION_BASE_URL = "https://maximuspookus--qwen3-vlm-captioning-serve.modal.run";
+const VQA_BASE_URL = "https://maximuspookus--qwen3-vlm-vqa-serve.modal.run";
 
 interface AsyncJobResponse {
   call_id: string;
@@ -364,16 +529,20 @@ interface JobStatusResponse {
 }
 
 async function submitAsyncJob(
+  baseUrl: string,
+  model: string,
   imageBase64: string,
-  prompt: string = "Describe this satellite image in detail."
+  prompt: string,
+  maxTokens: number = 512,
+  temperature: number = 0.7
 ): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/v1/chat/completions/async`, {
+  const response = await fetch(`${baseUrl}/v1/chat/completions/async`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "qwen-caption-special",
+      model: model,
       messages: [
         {
           role: "user",
@@ -386,8 +555,8 @@ async function submitAsyncJob(
           ],
         },
       ],
-      max_tokens: 512,
-      temperature: 0.7,
+      max_tokens: maxTokens,
+      temperature: temperature,
     }),
   });
 
@@ -400,6 +569,7 @@ async function submitAsyncJob(
 }
 
 async function pollJobStatus(
+  baseUrl: string,
   callId: string,
   maxWait: number = 300,
   pollInterval: number = 2000
@@ -408,7 +578,7 @@ async function pollJobStatus(
 
   while (Date.now() - startTime < maxWait * 1000) {
     const response = await fetch(
-      `${API_BASE_URL}/v1/chat/completions/status/${callId}`
+      `${baseUrl}/v1/chat/completions/status/${callId}`
     );
 
     if (response.status === 200) {
@@ -428,13 +598,36 @@ async function pollJobStatus(
   throw new Error(`Job did not complete within ${maxWait}s`);
 }
 
-// Usage
-async function processImage(imageBase64: string): Promise<string> {
-  const callId = await submitAsyncJob(imageBase64);
-  console.log(`Job submitted: ${callId}`);
+// =============================================================================
+// Usage Examples
+// =============================================================================
+
+// Captioning
+async function captionImage(imageBase64: string): Promise<string> {
+  const callId = await submitAsyncJob(
+    CAPTION_BASE_URL,
+    "qwen-caption-special",
+    imageBase64,
+    "Describe this satellite image in detail."
+  );
+  console.log(`Captioning job submitted: ${callId}`);
   
-  const result = await pollJobStatus(callId);
-  return result;
+  return await pollJobStatus(CAPTION_BASE_URL, callId);
+}
+
+// VQA
+async function askQuestion(imageBase64: string, question: string): Promise<string> {
+  const callId = await submitAsyncJob(
+    VQA_BASE_URL,
+    "qwen-vqa-special",
+    imageBase64,
+    question,
+    128,  // Lower max_tokens for answers
+    0.0   // Deterministic
+  );
+  console.log(`VQA job submitted: ${callId}`);
+  
+  return await pollJobStatus(VQA_BASE_URL, callId);
 }
 ```
 
@@ -442,9 +635,9 @@ async function processImage(imageBase64: string): Promise<string> {
 
 ## cURL Examples
 
-### Submit Job
+### Captioning - Submit Job
 ```bash
-curl -X POST https://maximuspookus--qwen3-vlm-caption-serve.modal.run/v1/chat/completions/async \
+curl -X POST "https://maximuspookus--qwen3-vlm-captioning-serve.modal.run/v1/chat/completions/async" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "qwen-caption-special",
@@ -464,9 +657,45 @@ curl -X POST https://maximuspookus--qwen3-vlm-caption-serve.modal.run/v1/chat/co
   }'
 ```
 
+### VQA - Submit Job
+```bash
+curl -X POST "https://maximuspookus--qwen3-vlm-vqa-serve.modal.run/v1/chat/completions/async" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen-vqa-special",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {"type": "text", "text": "How many ships are in this harbor?"},
+          {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,iVBORw0KGgoAAAANS..."}
+          }
+        ]
+      }
+    ],
+    "max_tokens": 128,
+    "temperature": 0.0
+  }'
+```
+
 ### Poll Status
 ```bash
-curl https://maximuspookus--qwen3-vlm-caption-serve.modal.run/v1/chat/completions/status/fc-abc123xyz
+# Captioning
+curl "https://maximuspookus--qwen3-vlm-captioning-serve.modal.run/v1/chat/completions/status/fc-abc123xyz"
+
+# VQA
+curl "https://maximuspookus--qwen3-vlm-vqa-serve.modal.run/v1/chat/completions/status/fc-abc123xyz"
+```
+
+### Health Check
+```bash
+# Captioning
+curl "https://maximuspookus--qwen3-vlm-captioning-serve.modal.run/health"
+
+# VQA
+curl "https://maximuspookus--qwen3-vlm-vqa-serve.modal.run/health"
 ```
 
 ---
@@ -478,34 +707,22 @@ curl https://maximuspookus--qwen3-vlm-caption-serve.modal.run/v1/chat/completion
 3. **Exponential Backoff**: Increase poll interval if job is taking longer
 4. **Error Handling**: Always handle 404 (expired), 202 (pending), and 500 (server error)
 5. **Concurrency**: Modal auto-scales, but batch submissions should be throttled client-side
-6. **Job Retention**: Results are available for 7 days after completion
+6. **Job Retention**: Results are available for **7 days** after completion
+7. **Cold Starts**: First request may take 10-30s if no containers are warm
 
 ---
 
-## Synchronous Endpoint (Legacy)
+## GPU Configuration
 
-For backward compatibility, the synchronous endpoint is still available:
+Both services are configured to stay within **2 A100 GPUs total**:
 
-**Endpoint**: `POST /v1/chat/completions`
-
-Same request format as async, but blocks until inference completes. Use only for:
-- Testing
-- Low-volume applications
-- When you need immediate results and can afford blocking
-
----
-
-## Health Check
-
-**Endpoint**: `GET /health`
-
-**Response**:
-```json
-{
-  "status": "ok",
-  "model": "qwen-caption-special"
-}
-```
+| Setting | Value | Description |
+|---------|-------|-------------|
+| GPU | A100 (40GB) | Sufficient for 8B models with FP16 |
+| Memory Utilization | 88% | ~35GB used, leaves headroom |
+| Tensor Parallel | 1 | Single GPU per request |
+| Scaledown Window | 5 minutes | Container stays warm after request |
+| Min Containers | 0 | No always-on containers (on-demand) |
 
 ---
 
@@ -513,7 +730,8 @@ Same request format as async, but blocks until inference completes. Use only for
 
 ### Job Stuck in Pending
 - Check Modal dashboard for container status
-- Verify GPU availability
+- Verify GPU availability (A100 40GB)
+- Cold start can take 10-30s for first request
 - Increase poll timeout
 
 ### 404 Expired Error
@@ -521,27 +739,52 @@ Same request format as async, but blocks until inference completes. Use only for
 - Re-submit the job if needed
 
 ### 500 Server Error
-- Check Modal logs
+- Check Modal logs for stack trace
 - Verify model is deployed correctly
-- Ensure volume is mounted properly
+- Ensure volume is mounted:
+  - Captioning: `vlm-weights-merged-caption-special`
+  - VQA: `vlm-weights-merged-vqa-special`
+
+### Cold Start Delays
+- First request after idle may take 10-30s
+- Subsequent requests within 5 minutes are fast
+- Consider a warm-up request before production traffic
 
 ---
 
-## Model Information
+## Deployment
 
-- **Model Name**: `qwen-caption-special`
-- **Base Model**: Qwen3-VL-8B-Instruct
-- **Fine-tuned for**: Satellite imagery captioning
-- **GPU**: A100-80GB
-- **Max Image Size**: No hard limit (handles full-resolution satellite images)
-- **Supported Formats**: PNG, JPEG (via base64 data URLs)
+Deploy using Modal CLI:
+
+```bash
+# Deploy Captioning service
+modal deploy captioning.py
+
+# Deploy VQA service
+modal deploy vqa.py
+```
+
+Check deployment status:
+```bash
+modal app list
+```
+
+View logs:
+```bash
+modal app logs qwen3-vlm-captioning
+modal app logs qwen3-vlm-vqa
+```
 
 ---
 
 ## Support
 
 For issues or questions:
-1. Check Modal dashboard: https://modal.com/apps/maximuspookus/main/deployed/qwen3-vlm-caption
-2. Review deployment logs in Modal
-3. Verify volume contains merged model: `vlm-weights-merged-caption-special`
 
+1. **Modal Dashboard**: Check deployment logs and container status
+2. **Volumes**: Verify model weights are present in the volumes
+3. **GPU Availability**: Check Modal's GPU availability in your region
+
+**Volumes to verify:**
+- `vlm-weights-merged-caption-special` (Captioning)
+- `vlm-weights-merged-vqa-special` (VQA)
