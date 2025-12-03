@@ -2,8 +2,12 @@ from typing import TypedDict, List, Optional, Literal, Any, Dict
 from pydantic import BaseModel, Field
 
 
+# Type alias for VQA subtypes
+VQAType = Literal["yesno", "general", "counting", "area"]
+
+
 class AgentState(TypedDict):
-    """Complete state for the multimodal chatbot workflow"""
+    """Complete state for the multimodal chatbot workflow with VQA sub-classification."""
     session_id: str
     image_url: str
     user_query: Optional[str]
@@ -21,6 +25,11 @@ class AgentState(TypedDict):
     ir2rgb_channels: Optional[List[str]]  # e.g., ["NIR", "R", "G"]
     ir2rgb_synthesize: Optional[Literal["R", "G", "B"]]  # Which channel to synthesize
     original_image_url: Optional[str]  # Original URL before IR2RGB conversion
+    
+    # VQA sub-classification
+    vqa_type: Optional[VQAType]  # "yesno", "general", "counting", "area"
+    vqa_type_confidence: Optional[float]  # Confidence score (0.0-1.0)
+    vqa_type_reasoning: Optional[str]  # Explanation for VQA type classification
     
     # Service output (only one populated per invoke)
     caption_result: Optional[str]
@@ -76,7 +85,7 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    """Response model for chat orchestrator endpoint"""
+    """Response model for chat orchestrator endpoint with VQA sub-classification."""
     session_id: str
     response_type: str  # "caption", "answer", "boxes"
     content: Any
@@ -98,6 +107,16 @@ class ChatResponse(BaseModel):
     resnet_classification_used: bool = Field(
         default=False,
         description="Whether ResNet classifier was used for modality detection"
+    )
+    
+    # VQA sub-classification result (if VQA was used)
+    vqa_type: Optional[str] = Field(
+        default=None,
+        description="VQA question type: yesno, general, counting, or area"
+    )
+    vqa_type_confidence: Optional[float] = Field(
+        default=None,
+        description="Confidence score for VQA type classification (0.0-1.0)"
     )
     
     # IR2RGB conversion result (if applied)

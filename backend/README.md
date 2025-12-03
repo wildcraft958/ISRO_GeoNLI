@@ -80,8 +80,13 @@ SECRET_KEY=your_secret_key_here
 # Modal service settings
 MODAL_BASE_URL=https://your-org--app-name.modal.run
 
-# OpenAI settings (for auto-router)
-OPENAI_API_KEY=sk-your-api-key
+# LLM settings (for task routing and VQA classification)
+LLM_MODEL_NAME=                    # Optional: specific model name
+LLM_TIMEOUT=30                     # Timeout for LLM calls in seconds
+
+# Optional: Custom system prompts (defaults are provided)
+# LLM_ROUTER_SYSTEM_PROMPT=...     # Custom task router prompt
+# LLM_VQA_CLASSIFIER_SYSTEM_PROMPT=...  # Custom VQA classifier prompt
 
 # LangSmith settings (optional, for monitoring)
 LANGSMITH_API_KEY=your-langsmith-key
@@ -161,13 +166,46 @@ uv run pytest tests/               # Run tests
 
 ### Orchestrator Endpoints
 
-- `POST /api/orchestrator/chat` - Main chat endpoint
-- `GET /api/orchestrator/session/{session_id}/history` - Get session history
+- `POST /orchestrator/chat` - Main chat endpoint with task routing and VQA sub-classification
+- `POST /orchestrator/ir2rgb` - Standalone IR2RGB conversion endpoint
+- `GET /orchestrator/ir2rgb/status` - Check IR2RGB service status
+- `GET /orchestrator/modality/status` - Check modality detection service status
+- `GET /orchestrator/llm/status` - Check LLM service status
+- `POST /orchestrator/router/test` - Test task router classification
+- `POST /orchestrator/vqa-classifier/test` - Test VQA sub-classification
+- `GET /orchestrator/session/{session_id}/history` - Get session history
+- `GET /orchestrator/sessions` - Get user sessions
+- `GET /orchestrator/sessions/{session_id}/messages` - Get session messages
+- `POST /orchestrator/sessions/{session_id}/summarize` - Summarize conversation
+- `DELETE /orchestrator/session/{session_id}` - Clear session
 
 ### Health Check
 
 - `GET /health` - Health check endpoint
 - `GET /` - Root endpoint
+
+## Task Routing and VQA Sub-Classification
+
+The orchestrator uses a Modal-deployed LLM for intelligent task routing:
+
+### Task Router
+Classifies user queries into one of three task pipelines:
+- **VQA**: Visual Question Answering (what, why, how, count, area)
+- **Grounding**: Object detection/localization (where, locate, find)
+- **Captioning**: General image description (no specific question)
+
+### VQA Sub-Classification
+For VQA tasks, queries are further classified into sub-types:
+- **yesno**: Yes/no questions ("Is there a building?")
+- **general**: Open-ended questions ("What type of land cover is shown?")
+- **counting**: Count objects ("How many vehicles are there?")
+- **area**: Area calculations ("What is the area of the forest region?")
+
+### System Prompts
+Both the task router and VQA classifier use configurable system prompts.
+You can customize them via environment variables:
+- `LLM_ROUTER_SYSTEM_PROMPT`
+- `LLM_VQA_CLASSIFIER_SYSTEM_PROMPT`
 
 ## Project Structure
 
@@ -209,10 +247,19 @@ All dependencies are managed in `pyproject.toml` using `uv`. Key dependencies:
 
 ## Modal Services
 
-The orchestrator integrates with Modal-deployed VLM services:
-- Grounding (bounding box detection)
-- VQA (visual question answering)
-- Captioning (image description)
+The orchestrator integrates with Modal-deployed services:
+
+### VLM Services
+- **Grounding** - Bounding box detection for object localization
+- **VQA** - Visual question answering with sub-type support
+- **Captioning** - Image description generation
+
+### LLM Services
+- **Task Router** - Classifies queries into VQA/Grounding/Captioning
+- **VQA Classifier** - Classifies VQA queries into yesno/general/counting/area
+
+The LLM services use a general-purpose LLM endpoint (`/v1/chat/completions`) 
+with configurable system prompts for different classification tasks.
 
 See `modal_services/` for service implementations.
 

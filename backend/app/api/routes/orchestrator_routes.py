@@ -115,6 +115,10 @@ async def chat_endpoint(
             "ir2rgb_channels": req.ir2rgb_channels,
             "ir2rgb_synthesize": req.ir2rgb_synthesize,
             "original_image_url": None,
+            # VQA sub-classification
+            "vqa_type": None,
+            "vqa_type_confidence": None,
+            "vqa_type_reasoning": None,
             # Session state
             "messages": existing_state.get("messages", []) if existing_state else [],
             "session_context": existing_state.get("session_context", {}) if existing_state else {},
@@ -217,6 +221,9 @@ async def chat_endpoint(
             detected_modality=result.get("detected_modality"),
             modality_confidence=result.get("modality_confidence"),
             resnet_classification_used=result.get("resnet_classification_used", False),
+            # VQA sub-classification result (if VQA was used)
+            vqa_type=result.get("vqa_type"),
+            vqa_type_confidence=result.get("vqa_type_confidence"),
             # IR2RGB conversion result
             converted_image_url=result.get("image_url") if ir2rgb_applied else None,
             original_image_url=result.get("original_image_url"),
@@ -230,9 +237,10 @@ async def chat_endpoint(
         resnet_used = result.get("resnet_classification_used", False)
         confidence_str = f", confidence={confidence:.3f}" if confidence else ""
         resnet_str = " (ResNet)" if resnet_used else ""
+        vqa_type_str = f", vqa_type={result.get('vqa_type')}" if result.get("vqa_type") else ""
         logger.info(
             f"Chat request completed: session={session_id}, type={response_type}, "
-            f"modality={detected}{confidence_str}{resnet_str}, message_id={message_id}"
+            f"modality={detected}{confidence_str}{resnet_str}{vqa_type_str}, message_id={message_id}"
         )
         
         return response
@@ -350,6 +358,120 @@ async def modality_detection_status():
             "resnet_fallback": resnet_available,
         }
     }
+
+
+# =============================================================================
+# Task Router and VQA Classifier Test Endpoints
+# =============================================================================
+
+@router.post("/router/test")
+async def test_task_router(
+    query: str,
+    detected_modality: Optional[str] = None,
+    has_image: bool = True
+):
+    """
+    Test the task router with a query.
+    
+    This endpoint allows testing the task classification logic
+    without invoking the full workflow.
+    
+    Args:
+        query: User query text to classify
+        detected_modality: Optional image modality (rgb, infrared, sar)
+        has_image: Whether image is present
+    
+    Returns:
+        Task classification result with task type, confidence, and reasoning
+    """
+    from app.services.modal_client import ModalServiceClient
+    
+    try:
+        client = ModalServiceClient()
+        result = client.call_task_router(
+            query=query,
+            detected_modality=detected_modality,
+            has_image=has_image
+        )
+        return {
+            "success": True,
+            "query": query,
+            "detected_modality": detected_modality,
+            **result
+        }
+    except Exception as e:
+        logger.error(f"Task router test failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/vqa-classifier/test")
+async def test_vqa_classifier(
+    query: str,
+    detected_modality: Optional[str] = None
+):
+    """
+    Test the VQA sub-classifier with a query.
+    
+    This endpoint allows testing the VQA type classification logic
+    without invoking the full workflow.
+    
+    Args:
+        query: VQA query text to classify
+        detected_modality: Optional image modality (rgb, infrared, sar)
+    
+    Returns:
+        VQA type classification result with vqa_type, confidence, and reasoning
+    """
+    from app.services.modal_client import ModalServiceClient
+    
+    try:
+        client = ModalServiceClient()
+        result = client.call_vqa_subclassifier(
+            query=query,
+            detected_modality=detected_modality
+        )
+        return {
+            "success": True,
+            "query": query,
+            "detected_modality": detected_modality,
+            **result
+        }
+    except Exception as e:
+        logger.error(f"VQA classifier test failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/llm/status")
+async def llm_service_status():
+    """
+    Check if LLM service is available.
+    
+    Tests the connection to the Modal-deployed LLM service
+    used for task routing and VQA classification.
+    
+    Returns:
+        dict with availability status
+    """
+    from app.services.modal_client import ModalServiceClient
+    
+    try:
+        client = ModalServiceClient()
+        # Try a simple classification to test the service
+        result = client.call_task_router(
+            query="test",
+            has_image=False
+        )
+        return {
+            "available": True,
+            "message": "LLM service is available",
+            "base_url": client.base_url
+        }
+    except Exception as e:
+        return {
+            "available": False,
+            "message": f"LLM service unavailable: {str(e)}",
+            "base_url": ModalServiceClient().base_url
+        }
 
 
 @router.get("/session/{session_id}/history")

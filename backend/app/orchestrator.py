@@ -2,18 +2,29 @@
 LangGraph Orchestrator for Multimodal Chatbot.
 
 This module defines the workflow for routing queries to specialized VLM services
-(Grounding, VQA, Captioning) with automatic modality detection and optional
-IR2RGB preprocessing for multispectral satellite images.
+(Grounding, VQA, Captioning) with automatic modality detection, optional
+IR2RGB preprocessing, and VQA sub-classification.
 
 Workflow:
-    START -> Modality Detection -> [IR2RGB Preprocessing (if infrared)] -> Router -> Service -> END
+    START -> detect_modality -> preprocessing_router
+        -> (preprocess_ir2rgb OR route_to_service)
+            -> conditional_router (VQA/Grounding/Captioning)
+                -> IF VQA: vqa_subclassify_router
+                    -> call_vqa_yesno OR call_vqa_general OR call_vqa_counting OR call_vqa_area
+                -> IF Grounding: call_grounding
+                -> IF Captioning: call_captioning
+
+VQA Sub-Types:
+    - yesno: Questions answerable with yes/no
+    - general: Open-ended questions (what, why, how, describe)
+    - counting: Count objects/features (how many)
+    - area: Area/measurement calculations
 """
 
 import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -26,9 +37,9 @@ from app.services.modality_router import (
     is_modality_detection_available,
 )
 from app.services.resnet_classifier_client import (
+    ResNetClassifierError,
     get_resnet_classifier_client,
     is_resnet_classifier_available,
-    ResNetClassifierError,
 )
 
 logger = logging.getLogger(__name__)
@@ -351,15 +362,21 @@ def preprocess_ir2rgb_node(state: AgentState) -> dict:
 
 
 # =============================================================================
-# Router Functions
+# Task Router Functions
 # =============================================================================
 
 def auto_router_func(state: AgentState) -> str:
     """
-    Classifies intent from user query using LLM.
+    Classifies intent from user query using Modal-deployed LLM.
+    
+    Uses the general LLM service with a task classification system prompt
+    to determine whether the query should be routed to:
+    - VQA (visual question answering)
+    - Grounding (object detection/localization)
+    - Captioning (image description)
     
     Returns:
-        One of: "call_captioning", "call_vqa", or "call_grounding"
+        One of: "call_captioning", "vqa_subclassify", or "call_grounding"
     """
     query = state.get("user_query", "")
     query = query.strip() if query else ""
@@ -369,52 +386,71 @@ def auto_router_func(state: AgentState) -> str:
         state["execution_log"].append("Auto Router: No query detected -> Captioning")
         return "call_captioning"
     
-    # Rule 2: LLM Classification
+    # Rule 2: Use Modal LLM for classification
     try:
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-        classification_prompt = (
-            f"Classify this user intent:\n\n"
-            f"Query: \"{query}\"\n\n"
-            f"Return ONLY ONE word:\n"
-            f"- 'LOCATE' if user wants bounding boxes, object detection, or spatial info\n"
-            f"- 'QA' if user asks a question (what, why, how, describe, explain, etc)\n"
-            f"- 'DESCRIBE' if user wants general description\n\n"
-            f"Response:"
+        detected_modality = state.get("detected_modality")
+        has_image = bool(state.get("image_url"))
+        
+        state["execution_log"].append(
+            f"Auto Router: Calling Modal LLM router (query: '{query[:50]}...', "
+            f"modality: {detected_modality})"
         )
-        response = llm.invoke(classification_prompt)
-        intent = response.content.strip().upper()
         
-        state["execution_log"].append(f"Auto Router: Classified as {intent}")
+        result = modal_client.call_task_router(
+            query=query,
+            detected_modality=detected_modality,
+            has_image=has_image
+        )
         
-        # Map to service
-        intent_map = {
-            "LOCATE": "call_grounding",
-            "QA": "call_vqa",
-            "DESCRIBE": "call_vqa",  # Default QA for open-ended
+        task = result.get("task", "vqa")
+        confidence = result.get("confidence", 0.0)
+        reasoning = result.get("reasoning", "")
+        
+        state["execution_log"].append(
+            f"Auto Router: Classified as '{task}' (confidence: {confidence:.2f}, "
+            f"reasoning: {reasoning})"
+        )
+        
+        # Map task to node name
+        # VQA goes to vqa_subclassify for sub-classification
+        task_map = {
+            "vqa": "vqa_subclassify",
+            "grounding": "call_grounding",
+            "captioning": "call_captioning",
         }
-        return intent_map.get(intent, "call_vqa")
+        
+        return task_map.get(task, "vqa_subclassify")
     
     except Exception as e:
-        # Fallback to VQA on LLM error
-        logger.warning(f"Auto router LLM classification failed: {e}")
+        # Fallback to VQA on router error
+        logger.warning(f"Auto router Modal LLM classification failed: {e}")
         state["execution_log"].append(
-            f"Auto Router: LLM classification failed, defaulting to VQA - {str(e)}"
+            f"Auto Router: Modal LLM classification failed, defaulting to VQA - {str(e)}"
         )
-        return "call_vqa"
+        return "vqa_subclassify"
 
 
 def conditional_router(state: AgentState) -> str:
     """
     Top-level router for modes.
-    Returns single node name (no parallel execution).
+    
+    Routes based on explicit mode or uses auto_router_func for auto mode.
+    VQA requests are routed to vqa_subclassify for sub-classification.
+    
+    Returns:
+        One of: "call_captioning", "vqa_subclassify", or "call_grounding"
     """
     mode = state["mode"]
     
     if mode == "auto":
         state["execution_log"].append("Router: Auto mode -> classifying intent")
         return auto_router_func(state)
+    elif mode == "vqa":
+        # VQA goes to sub-classification
+        state["execution_log"].append("Router: Explicit VQA mode -> sub-classifying")
+        return "vqa_subclassify"
     else:
-        # Explicit mode (captioning, vqa, grounding)
+        # Explicit mode (captioning, grounding)
         node = f"call_{mode}"
         state["execution_log"].append(f"Router: Explicit mode -> {node}")
         return node
@@ -431,6 +467,85 @@ def preprocessing_router(state: AgentState) -> str:
 
 
 # =============================================================================
+# VQA Sub-Classification Router
+# =============================================================================
+
+def vqa_subclassify_node(state: AgentState) -> dict:
+    """
+    Classify VQA query into subtypes using Modal LLM.
+    
+    This node determines the specific type of VQA question:
+    - yesno: Questions answerable with yes/no
+    - general: Open-ended questions
+    - counting: Count objects/features
+    - area: Area/measurement calculations
+    
+    Returns:
+        State updates with vqa_type, vqa_type_confidence, vqa_type_reasoning
+    """
+    query = state.get("user_query", "")
+    detected_modality = state.get("detected_modality")
+    
+    try:
+        state["execution_log"].append(
+            f"VQA Subclassify: Classifying query type..."
+        )
+        
+        result = modal_client.call_vqa_subclassifier(
+            query=query,
+            detected_modality=detected_modality
+        )
+        
+        vqa_type = result.get("vqa_type", "general")
+        confidence = result.get("confidence", 0.0)
+        reasoning = result.get("reasoning", "")
+        
+        state["execution_log"].append(
+            f"VQA Subclassify: Type '{vqa_type}' (confidence: {confidence:.2f}, "
+            f"reasoning: {reasoning})"
+        )
+        
+        return {
+            "vqa_type": vqa_type,
+            "vqa_type_confidence": confidence,
+            "vqa_type_reasoning": reasoning,
+        }
+    
+    except Exception as e:
+        logger.warning(f"VQA subclassification failed: {e}")
+        state["execution_log"].append(
+            f"VQA Subclassify: Failed - {str(e)}, defaulting to 'general'"
+        )
+        return {
+            "vqa_type": "general",
+            "vqa_type_confidence": 0.0,
+            "vqa_type_reasoning": f"Classification failed: {str(e)}",
+        }
+
+
+def vqa_subtype_router(state: AgentState) -> str:
+    """
+    Route to appropriate VQA sub-type node based on classification.
+    
+    Returns:
+        One of: "call_vqa_yesno", "call_vqa_general", 
+                "call_vqa_counting", or "call_vqa_area"
+    """
+    vqa_type = state.get("vqa_type", "general")
+    
+    type_map = {
+        "yesno": "call_vqa_yesno",
+        "general": "call_vqa_general",
+        "counting": "call_vqa_counting",
+        "area": "call_vqa_area",
+    }
+    
+    node = type_map.get(vqa_type, "call_vqa_general")
+    state["execution_log"].append(f"VQA Router: Type '{vqa_type}' -> {node}")
+    return node
+
+
+# =============================================================================
 # Service Nodes
 # =============================================================================
 
@@ -441,7 +556,7 @@ def call_grounding_node(state: AgentState) -> dict:
         image_url = state["image_url"]
         query = state.get("user_query") or ""
         
-        state["execution_log"].append(f"Grounding: Calling service...")
+        state["execution_log"].append("Grounding: Calling service...")
         result = modal_client.call_grounding(image_url, query)
         
         bbox_count = len(result.get("bboxes", []))
@@ -468,45 +583,12 @@ def call_grounding_node(state: AgentState) -> dict:
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8))
-def call_vqa_node(state: AgentState) -> dict:
-    """VQA service node with retry logic."""
-    try:
-        image_url = state["image_url"]
-        query = state.get("user_query") or ""
-        
-        state["execution_log"].append(f"VQA: Calling service...")
-        result = modal_client.call_vqa(image_url, query)
-        
-        answer = result.get("answer", "")
-        answer_preview = answer[:50] + "..." if len(answer) > 50 else answer
-        state["execution_log"].append(f"VQA: Success ({answer_preview})")
-        
-        # Append assistant message
-        message_update = append_assistant_message(
-            state,
-            answer,
-            "answer",
-            metadata={"vqa_result": result, "execution_log": state.get("execution_log", [])}
-        )
-        
-        return {
-            "vqa_result": answer,
-            **message_update
-        }
-    
-    except Exception as e:
-        logger.error(f"VQA service failed: {e}")
-        state["execution_log"].append(f"VQA: Failed - {str(e)}")
-        raise
-
-
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8))
 def call_captioning_node(state: AgentState) -> dict:
     """Captioning service node with retry logic."""
     try:
         image_url = state["image_url"]
         
-        state["execution_log"].append(f"Captioning: Calling service...")
+        state["execution_log"].append("Captioning: Calling service...")
         result = modal_client.call_captioning(image_url)
         
         caption = result.get("caption", "")
@@ -533,6 +615,123 @@ def call_captioning_node(state: AgentState) -> dict:
 
 
 # =============================================================================
+# VQA Sub-Type Service Nodes
+# =============================================================================
+
+def _call_vqa_with_type(state: AgentState, vqa_type: str) -> dict:
+    """
+    Common VQA call logic for all sub-types.
+    
+    Args:
+        state: Current agent state
+        vqa_type: VQA sub-type ("yesno", "general", "counting", "area")
+    
+    Returns:
+        State updates with vqa_result and messages
+    """
+    image_url = state["image_url"]
+    query = state.get("user_query") or ""
+    
+    state["execution_log"].append(f"VQA ({vqa_type}): Calling service...")
+    result = modal_client.call_vqa(image_url, query, vqa_type=vqa_type)
+    
+    answer = result.get("answer", "")
+    answer_preview = answer[:50] + "..." if len(answer) > 50 else answer
+    state["execution_log"].append(f"VQA ({vqa_type}): Success ({answer_preview})")
+    
+    # Append assistant message with vqa_type in metadata
+    metadata = {
+        "vqa_result": result, 
+        "vqa_type": vqa_type,
+        "execution_log": state.get("execution_log", [])
+    }
+    
+    message_update = append_assistant_message(
+        state,
+        answer,
+        "answer",
+        metadata=metadata
+    )
+    
+    return {
+        "vqa_result": answer,
+        **message_update
+    }
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8))
+def call_vqa_yesno_node(state: AgentState) -> dict:
+    """
+    VQA service node for yes/no questions.
+    
+    Handles questions that can be answered with yes/no:
+    - "Is there a building in the image?"
+    - "Does this area contain water?"
+    - "Are there any vehicles visible?"
+    """
+    try:
+        return _call_vqa_with_type(state, "yesno")
+    except Exception as e:
+        logger.error(f"VQA (yesno) service failed: {e}")
+        state["execution_log"].append(f"VQA (yesno): Failed - {str(e)}")
+        raise
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8))
+def call_vqa_general_node(state: AgentState) -> dict:
+    """
+    VQA service node for general/open-ended questions.
+    
+    Handles open-ended questions:
+    - "What type of land cover is shown?"
+    - "Describe the urban development in this area"
+    - "What can you identify in this satellite image?"
+    """
+    try:
+        return _call_vqa_with_type(state, "general")
+    except Exception as e:
+        logger.error(f"VQA (general) service failed: {e}")
+        state["execution_log"].append(f"VQA (general): Failed - {str(e)}")
+        raise
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8))
+def call_vqa_counting_node(state: AgentState) -> dict:
+    """
+    VQA service node for counting questions.
+    
+    Handles questions asking to count objects/features:
+    - "How many buildings are in this image?"
+    - "Count the number of vehicles"
+    - "How many ships can you see?"
+    """
+    try:
+        return _call_vqa_with_type(state, "counting")
+    except Exception as e:
+        logger.error(f"VQA (counting) service failed: {e}")
+        state["execution_log"].append(f"VQA (counting): Failed - {str(e)}")
+        raise
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8))
+def call_vqa_area_node(state: AgentState) -> dict:
+    """
+    VQA service node for area/measurement questions.
+    
+    Handles questions asking for area calculations:
+    - "What is the area of the forest region?"
+    - "Calculate the size of the water body"
+    - "Estimate the area covered by buildings"
+    """
+    try:
+        return _call_vqa_with_type(state, "area")
+    except Exception as e:
+        logger.error(f"VQA (area) service failed: {e}")
+        state["execution_log"].append(f"VQA (area): Failed - {str(e)}")
+        raise
+
+
+# =============================================================================
 # Passthrough Node
 # =============================================================================
 
@@ -554,25 +753,44 @@ def route_to_service_node(state: AgentState) -> dict:
 
 def build_workflow():
     """
-    Construct the multimodal chatbot workflow.
+    Construct the multimodal chatbot workflow with VQA sub-classification.
     
     Graph structure:
         START -> detect_modality -> preprocessing_router
-            -> preprocess_ir2rgb -> conditional_router -> service -> END
-            -> route_to_service -> conditional_router -> service -> END
+            -> preprocess_ir2rgb -> conditional_router
+            -> route_to_service -> conditional_router
+                -> call_grounding -> END
+                -> call_captioning -> END
+                -> vqa_subclassify -> vqa_subtype_router
+                    -> call_vqa_yesno -> END
+                    -> call_vqa_general -> END
+                    -> call_vqa_counting -> END
+                    -> call_vqa_area -> END
     
     The detect_modality node runs first to classify the image and
     auto-configure IR2RGB preprocessing for infrared images.
+    
+    VQA queries go through sub-classification to determine the
+    specific type (yesno, general, counting, area).
     """
     workflow = StateGraph(AgentState)
     
     # === ADD NODES ===
+    # Modality detection and preprocessing
     workflow.add_node("detect_modality", detect_modality_node)
     workflow.add_node("preprocess_ir2rgb", preprocess_ir2rgb_node)
     workflow.add_node("route_to_service", route_to_service_node)
+    
+    # Non-VQA service nodes
     workflow.add_node("call_grounding", call_grounding_node)
-    workflow.add_node("call_vqa", call_vqa_node)
     workflow.add_node("call_captioning", call_captioning_node)
+    
+    # VQA sub-classification and service nodes
+    workflow.add_node("vqa_subclassify", vqa_subclassify_node)
+    workflow.add_node("call_vqa_yesno", call_vqa_yesno_node)
+    workflow.add_node("call_vqa_general", call_vqa_general_node)
+    workflow.add_node("call_vqa_counting", call_vqa_counting_node)
+    workflow.add_node("call_vqa_area", call_vqa_area_node)
     
     # === ADD EDGES ===
     
@@ -589,14 +807,14 @@ def build_workflow():
         }
     )
     
-    # After preprocessing, route to service
+    # After preprocessing, route to service (VQA goes to sub-classify)
     workflow.add_conditional_edges(
         "preprocess_ir2rgb",
         conditional_router,
         {
             "call_grounding": "call_grounding",
-            "call_vqa": "call_vqa",
             "call_captioning": "call_captioning",
+            "vqa_subclassify": "vqa_subclassify",
         }
     )
     
@@ -606,21 +824,37 @@ def build_workflow():
         conditional_router,
         {
             "call_grounding": "call_grounding",
-            "call_vqa": "call_vqa",
             "call_captioning": "call_captioning",
+            "vqa_subclassify": "vqa_subclassify",
+        }
+    )
+    
+    # After VQA sub-classification, route to appropriate VQA node
+    workflow.add_conditional_edges(
+        "vqa_subclassify",
+        vqa_subtype_router,
+        {
+            "call_vqa_yesno": "call_vqa_yesno",
+            "call_vqa_general": "call_vqa_general",
+            "call_vqa_counting": "call_vqa_counting",
+            "call_vqa_area": "call_vqa_area",
         }
     )
     
     # All service nodes end the workflow
     workflow.add_edge("call_grounding", END)
-    workflow.add_edge("call_vqa", END)
     workflow.add_edge("call_captioning", END)
+    workflow.add_edge("call_vqa_yesno", END)
+    workflow.add_edge("call_vqa_general", END)
+    workflow.add_edge("call_vqa_counting", END)
+    workflow.add_edge("call_vqa_area", END)
     
     # === CHECKPOINTING ===
     checkpointer = MongoDBCheckpointer()
     
     logger.info(
-        "Building LangGraph workflow with modality detection and IR2RGB preprocessing"
+        "Building LangGraph workflow with modality detection, IR2RGB preprocessing, "
+        "and VQA sub-classification"
     )
     return workflow.compile(checkpointer=checkpointer)
 
