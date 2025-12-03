@@ -16,6 +16,7 @@ import { ProcessingIndicator } from "../components/ProcessingIndicator";
 import groundingAnnotated from "../assets/sat_demo.jpg";
 import radar from "@/assets/radar.json";
 import { routes } from "@/lib/api";
+
 export interface Message {
   id: string;
   type: "user" | "ai";
@@ -47,6 +48,7 @@ export default function Home() {
   };
 
   const handleSendMessage = async (data: messageType) => {
+    
     const userMessage: Message = {
       id: Date.now().toString(),
       type: "user",

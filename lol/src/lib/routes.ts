@@ -6,7 +6,7 @@ const SESSION_HISTORY = `/orchestrator/session`;
 const QUERY_CREATE = `/query/create`;
 const QUERY_GET = `/query`;
 const QUERY_LIST = `/query/chat`;
-const GET_CHATS="/"
+const GET_CHATS="/chat/all"
 
 export {
   USER_SYNC,

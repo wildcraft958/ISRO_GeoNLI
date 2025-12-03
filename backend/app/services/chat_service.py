@@ -19,3 +19,7 @@ async def create_chat(db: AsyncIOMotorDatabase, data: ChatCreate) -> ChatPublic:
     created = await db[COLLECTION_NAME].find_one({"_id": result.inserted_id})
     return ChatPublic(**chat_to_public(created))
 
+async def get_chats_by_user(db, user_id: str):
+    cursor = db["chats"].find({"user_id": user_id})
+    return [ChatPublic(**doc) for doc in await cursor.to_list(length=None)]
+

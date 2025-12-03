@@ -19,3 +19,13 @@ async def create_chat_endpoint(
         response.status_code = status.HTTP_201_CREATED
     return chat 
 
+
+
+
+@router.get("/all", response_model=list[ChatPublic])
+async def get_user_chats(
+    user_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_db_dep),
+):
+    chats = await chat_service.get_chats_by_user(db, user_id)
+    return chats
