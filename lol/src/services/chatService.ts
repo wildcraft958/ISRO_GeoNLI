@@ -31,7 +31,7 @@ export interface CreateChatResponse {
 
 export interface CreateQueryResponse {
   status: string;
-  query_id: number;
+  id: number;
   chat_id: string;
   message: string;
 }
@@ -47,9 +47,10 @@ export interface QueryData {
 export const chatService = {
   // ===== Chat Operations =====
   async createChat(userId: string, imageUrl?: string): Promise<CreateChatResponse> {
+    console.log(userId, imageUrl);
     const response = await apiClient.post(routes.CHAT_CREATE, {
       user_id: userId,
-      image_url: imageUrl || null,
+      image_url: imageUrl || "", // Ensure image_url is always a string
     });
     return response.data;
   },
@@ -92,7 +93,6 @@ export const chatService = {
       },
     });
 
-    console.log(response.data);
     return response.data;
   },
 
@@ -110,14 +110,20 @@ export const chatService = {
 
   // ===== Query Operations =====
   async createQuery(
+    parentId: string | null, // Can be null for the first query in a chat
     chatId: string,
-    questionText: string,
-    queryType?: string
+    request: string,
+    responseContent: string | null, // Can be null initially for user queries
+    type: string,
+    mode: string
   ): Promise<CreateQueryResponse> {
     const response = await apiClient.post(routes.QUERY_CREATE, {
-      chat_id: chatId,
-      question_text: questionText,
-      query_type: queryType || "general",
+      parent_id: parentId || "", // Convert null to empty string for backend
+      chat_id: chatId || "",
+      request: request || "",
+      response: responseContent || "", // Convert null to empty string for backend
+      type: type || "auto",
+      mode: mode || "auto",
     });
     return response.data;
   },

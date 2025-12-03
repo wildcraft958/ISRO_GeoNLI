@@ -39,6 +39,7 @@ export default function Home() {
   const [selectedImage,setSelectedImage]=useState<string|null>(null)
   const [mode, setMode] = useState<Mode>("vqa");
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [lastQueryId, setLastQueryId] = useState<string | null>(null); // New state for last query ID
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,7 +52,11 @@ export default function Home() {
     setCurrentPage(page);
   };
 
-  const handleSendMessage = async (data: messageType) => {
+  const handleSendMessage = async (
+    data: messageType,
+    userId?: string, // Added userId param from ChatInput
+    messageCategory?: "chat" | "query" // Added messageCategory param from ChatInput
+  ) => {
     const userMessage: Message = {
       id: Date.now().toString(),
       type: "user",
@@ -64,18 +69,49 @@ export default function Home() {
 
     try {
       let sessionId = currentChatId;
+      let queryId: string | null = lastQueryId;
 
-      // Create a new session if one doesn't exist
-      if (!sessionId) {
-        if (!user?.id) {
-          throw new Error("User must be authenticated to create a chat");
-        }
-        // Generate session ID (can be UUID from backend)
-        sessionId = `session_${Date.now()}`;
-        setCurrentChatId(sessionId);
+      if (!user?.id) {
+        throw new Error("User must be authenticated to create a chat/query");
       }
 
-      // Send message to orchestrator endpoint
+      // If no session exists, create a new one and an initial query
+      if (!sessionId) {
+        // Always create a chat session first, whether it's image or text based.
+        const createChatResponse = await chatService.createChat(
+          user.id,
+          data.image_url || undefined // Pass image_url if present, else undefined
+        );
+        sessionId = createChatResponse.chat_id;
+        setCurrentChatId(sessionId);
+
+        // Create the initial query for the new chat
+        const createQueryResponse = await chatService.createQuery(
+          null, // parent_id is null for the first query in a chat
+          sessionId,
+          data.text,
+          null, // response is null initially for the user's query
+          messageCategory === "chat" ? "image_query" : "text_query", // Type based on presence of image
+          mode // Mode of the current chat
+        );
+        console.log("createqueryeresponse", createQueryResponse);
+        queryId = createQueryResponse.id.toString(); // Assuming query_id is number, convert to string
+        setLastQueryId(queryId);
+      } else {
+        // If it's a subsequent text-only query in an existing session
+        const createQueryResponse = await chatService.createQuery(
+          lastQueryId, // parent_id is the previous query ID
+          sessionId,
+          data.text,
+          null,
+          "auto",
+          mode
+        );
+        queryId = createQueryResponse.query_id.toString();
+        setLastQueryId(queryId);
+      }
+
+      // Send message to orchestrator endpoint (this is the main AI processing)
       const response = await chatService.sendMessage(
         sessionId,
         user.id,
@@ -105,7 +141,7 @@ export default function Home() {
       // Save AI message to state
       setMessages((prev) => [...prev, aiMessage]);
 
-      // Backend persists messages via the orchestrator endpoint
+      // Backend persists messages via the orchestrator endpoint (comment remains relevant as orchestrator handles internal message persistence)
     } catch (error) {
       console.error("Failed to send message:", error);
       const errorMessage: Message = {
@@ -124,6 +160,7 @@ export default function Home() {
     setMode("vqa"); // Reset to default
     setCurrentPage("chat");
     setCurrentChatId(null);
+    setLastQueryId(null); // Reset last query ID
   };
 
   const handleSelectChat = async (sessionId: string) => {

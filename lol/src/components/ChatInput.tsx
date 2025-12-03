@@ -248,7 +248,11 @@ export function ChatInput({
     // guard: don't send if backend processing or image uploading
     if ((content.trim() || selectedImage) && !isProcessing && !isUploadingImage) {
       const image_url = selectedImage ? await uploadImage(user?.id) : undefined;
-      console.log(image_url);
+
+      // store in chats if image_url is defined
+
+      // else always store in queries
+
       const data = {
         text: content,
         image_url: image_url,
