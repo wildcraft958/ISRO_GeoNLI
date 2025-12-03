@@ -1,13 +1,20 @@
 import { apiClient, routes } from "@/lib/api";
 
 export interface ChatResponse {
-  status: string;
-  intent: string;
-  response: {
-    content: string;
-    suggestions?: string[];
-    boxes?: any[];
-  };
+  session_id: string;
+  response_type: "caption" | "answer" | "boxes";
+  content: string | { boxes: any[]; image_width: number; image_height: number };
+  execution_log: string[];
+  message_id: string;
+  detected_modality: string;
+  modality_confidence: number;
+  resnet_classification_used: boolean;
+  vqa_type: string | null;
+  vqa_type_confidence: number | null;
+  converted_image_url: string | null;
+  original_image_url: string | null;
+  buffer_token_count: number;
+  buffer_summarized: boolean;
 }
 
 export interface ImageUploadResponse {
@@ -47,13 +54,30 @@ export const chatService = {
     return response.data;
   },
 
-  async sendMessage(sessionId: string, query: string, imageUrl?: string, mode: string = "auto"): Promise<ChatResponse> {
-    const response = await apiClient.post(routes.ORCHESTRATOR_CHAT, {
+  async sendMessage(
+    sessionId: string,
+    userId: string,
+    query: string,
+    imageUrl: string = "",
+    mode: "auto" | "grounding" | "vqa" | "captioning" = "auto",
+    modalityDetectionEnabled: boolean = true,
+    needsIr2rgb: boolean = false,
+    ir2rgbChannels: string[] = [],
+    ir2rgbSynthesize: "B" | "G" | "R" | null = "B"
+  ): Promise<ChatResponse> {
+    const payload = {
+      session_id: sessionId,
+      user_id: userId,
       image_url: imageUrl,
       query: query,
       mode: mode,
-      session_id: sessionId,
-    });
+      modality_detection_enabled: modalityDetectionEnabled,
+      needs_ir2rgb: needsIr2rgb,
+      ir2rgb_channels: ir2rgbChannels,
+      ir2rgb_synthesize: ir2rgbSynthesize,
+    };
+
+    const response = await apiClient.post(routes.ORCHESTRATOR_CHAT, payload);
     return response.data;
   },
 
@@ -67,6 +91,7 @@ export const chatService = {
         "Content-Type": "multipart/form-data",
       },
     });
+    console.log(response.data);
     return response.data;
   },
 

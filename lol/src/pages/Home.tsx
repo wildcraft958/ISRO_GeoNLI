@@ -25,7 +25,7 @@ export interface Message {
   aiImage?: string;
 }
 
-export type Mode = "caption" | "question" | "grounding";
+export type Mode = "captioning" | "vqa" | "grounding";
 
 export default function Home() {
   const { user } = useUser();
@@ -33,7 +33,7 @@ export default function Home() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [mode, setMode] = useState<Mode>("question");
+  const [mode, setMode] = useState<Mode>("vqa");
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -48,7 +48,6 @@ export default function Home() {
   };
 
   const handleSendMessage = async (data: messageType) => {
-    
     const userMessage: Message = {
       id: Date.now().toString(),
       type: "user",
@@ -73,15 +72,28 @@ export default function Home() {
       }
 
       // Send message to orchestrator endpoint
-      const response = await chatService.sendMessage(sessionId, data.text, data.image_url, mode);
+      const response = await chatService.sendMessage(
+        sessionId,
+        user.id,
+        data.text,
+        data.image_url || "", // Ensure image_url is always a string
+        mode,
+        true, // modalityDetectionEnabled
+        false, // needsIr2rgb
+        [], // ir2rgbChannels
+        "B" // ir2rgbSynthesize
+      );
 
       // Create AI message from response
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: "ai",
-        content: response.response?.content || response.response.content || "No response from model",
+        content: typeof response.content === "string" ? response.content : "No response from model",
         aiImage:
-          mode === "grounding" && response.response?.boxes && response.response.boxes.length > 0
+          mode === "grounding" &&
+          typeof response.content !== "string" &&
+          response.content?.boxes &&
+          response.content.boxes.length > 0
             ? groundingAnnotated
             : undefined,
       };
@@ -105,7 +117,7 @@ export default function Home() {
 
   const handleNewChat = () => {
     setMessages([]);
-    setMode("question"); // Reset to default
+    setMode("vqa"); // Reset to default
     setCurrentPage("chat");
     setCurrentChatId(null);
   };
@@ -140,7 +152,13 @@ export default function Home() {
 
   const handleTrySample = (sample: SampleData) => {
     // Set the mode to match the sample
-    setMode(sample.mode);
+    if (sample.mode === "caption") {
+      setMode("captioning");
+    } else if (sample.mode === "question") {
+      setMode("vqa");
+    } else {
+      setMode(sample.mode);
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),

@@ -1,5 +1,6 @@
 """
 FastAPI routes for the multimodal chatbot orchestrator.
+**NOTE: All endpoints return hardcoded responses for testing/demo purposes.**
 
 Endpoints:
     POST /orchestrator/chat - Main chat endpoint with modality detection and IR2RGB
@@ -15,27 +16,18 @@ Endpoints:
 import logging
 import uuid
 from typing import Any, Optional
+from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.api.deps import get_db_dep
-from app.orchestrator import app, integrate_user_memory
-from app.schemas.message_schema import MessageCreate
 from app.schemas.orchestrator_schema import (
     ChatRequest,
     ChatResponse,
     IR2RGBRequest,
     IR2RGBResponse,
 )
-from app.schemas.session_schema import SessionCreate, SessionUpdate
-from app.schemas.user_memory_schema import UserMemoryUpdate
-from app.services import memory_service
-from app.services.memory_service import get_buffer_manager
-from app.services.ir2rgb_service import get_ir2rgb_service, is_ir2rgb_available
-from app.services.modality_router import is_modality_detection_available
-from app.services.resnet_classifier_client import is_resnet_classifier_available
-from app.utils.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -50,197 +42,162 @@ async def chat_endpoint(
 ):
     """
     Main chat endpoint for multimodal chatbot.
-    
-    Accepts:
-        - image_url: URL of image to process
-        - query: Optional text query
-        - mode: "auto", "grounding", "vqa", or "captioning"
-        - session_id: Optional session ID for conversation persistence
-        - user_id: Optional user ID for user memory integration
-        - modality_detection_enabled: Whether to auto-detect image modality (default True)
-        - needs_ir2rgb: Whether to convert multispectral image to RGB (auto-set if infrared detected)
-        - ir2rgb_channels: Channel order for IR2RGB (e.g., ["NIR", "R", "G"])
-        - ir2rgb_synthesize: Which channel to synthesize ("R", "G", or "B")
-    
-    Returns:
-        ChatResponse with response content, execution log, detected_modality, and message_id
+    **HARDCODED RESPONSE - Demo/Testing Mode**
     """
     try:
-        # Initialize session manager with database
-        session_manager = SessionManager(app, db)
-        
-        # Generate session ID if not provided
         session_id = req.session_id or str(uuid.uuid4())
-        
-        config = {"configurable": {"thread_id": session_id}}
-        
-        # Get or create session
-        session = await memory_service.get_session(db, session_id)
-        if not session:
-            session_data = SessionCreate(
-                session_id=session_id,
-                user_id=req.user_id
-            )
-            session = await memory_service.create_session(db, session_data)
-        
-        # Load user memory if user_id provided
-        user_memory = None
-        if req.user_id:
-            user_memory = await memory_service.get_user_memory(db, req.user_id)
-            if not user_memory:
-                # Create default user memory
-                from app.schemas.user_memory_schema import UserMemoryCreate
-                user_memory = await memory_service.create_user_memory(
-                    db,
-                    UserMemoryCreate(user_id=req.user_id)
-                )
-        
-        # Get existing session state from LangGraph
-        existing_state = session_manager.get_session_state(session_id)
-        
-        # Prepare inputs for LangGraph
-        inputs = {
-            "session_id": session_id,
-            "image_url": req.image_url,
-            "user_query": req.query,
-            "mode": req.mode,
-            # Modality detection
-            "modality_detection_enabled": req.modality_detection_enabled,
-            "detected_modality": None,
-            "modality_confidence": None,
-            "modality_diagnostics": None,
-            "resnet_classification_used": False,
-            # IR2RGB preprocessing
-            "needs_ir2rgb": req.needs_ir2rgb,
-            "ir2rgb_channels": req.ir2rgb_channels,
-            "ir2rgb_synthesize": req.ir2rgb_synthesize,
-            "original_image_url": None,
-            # VQA sub-classification
-            "vqa_type": None,
-            "vqa_type_confidence": None,
-            "vqa_type_reasoning": None,
-            # Session state
-            "messages": existing_state.get("messages", []) if existing_state else [],
-            "session_context": existing_state.get("session_context", {}) if existing_state else {},
-            # Service results
-            "caption_result": None,
-            "vqa_result": None,
-            "grounding_result": None,
-            "execution_log": [],
-        }
-        
-        # Integrate user memory into context
-        if user_memory:
-            memory_update = integrate_user_memory(inputs, user_memory.model_dump())
-            inputs.update(memory_update)
+        message_id = f"msg_{uuid.uuid4().hex[:16]}"
         
         logger.info(
-            f"Processing chat request: session={session_id}, user={req.user_id}, "
-            f"mode={req.mode}, modality_detection={req.modality_detection_enabled}, "
-            f"ir2rgb={req.needs_ir2rgb}"
+            f"[HARDCODED] Processing chat: session={session_id}, "
+            f"mode={req.mode}, user={req.user_id}"
         )
         
-        # Invoke workflow
-        result = app.invoke(inputs, config=config)
-        
-        # Determine response type and content
-        response_type = "unknown"
-        content = None
-        
+        # Determine response based on mode
         if req.mode == "captioning":
-            response_type = "caption"
-            content = result.get("caption_result", "")
+            response = ChatResponse(
+                session_id=session_id,
+                response_type="caption",
+                content="A satellite image showing urban development with buildings, roads, and green spaces visible from above.",
+                execution_log=[
+                    "Received captioning request",
+                    "Image preprocessing complete",
+                    "Running caption generation model",
+                    "Caption generated successfully"
+                ],
+                message_id=message_id,
+                detected_modality="rgb",
+                modality_confidence=0.94,
+                resnet_classification_used=False,
+                vqa_type=None,
+                vqa_type_confidence=None,
+                converted_image_url=None,
+                original_image_url=req.image_url,
+                buffer_token_count=165,
+                buffer_summarized=False
+            )
+        
         elif req.mode == "vqa":
-            response_type = "answer"
-            content = result.get("vqa_result", "")
+            query_lower = (req.query or "").lower()
+            
+            # Generate contextual answer based on query keywords
+            if "count" in query_lower or "how many" in query_lower:
+                answer = "There are approximately 15 buildings visible in the image."
+                vqa_type = "counting"
+            elif "color" in query_lower or "what color" in query_lower:
+                answer = "The predominant colors are green (vegetation), gray (roads/buildings), and blue (water bodies)."
+                vqa_type = "color_recognition"
+            elif "where" in query_lower or "location" in query_lower:
+                answer = "This appears to be an urban area with mixed residential and commercial development, likely in a suburban setting."
+                vqa_type = "spatial_reasoning"
+            else:
+                answer = f"Based on the image analysis: {req.query or 'The scene shows a typical urban landscape with infrastructure and natural features.'}"
+                vqa_type = "scene_understanding"
+            
+            response = ChatResponse(
+                session_id=session_id,
+                response_type="answer",
+                content=answer,
+                execution_log=[
+                    "Received VQA request",
+                    f"Query: {req.query or 'generic question'}",
+                    f"Classified as: {vqa_type}",
+                    "Processing image-query pair",
+                    "Answer generated successfully"
+                ],
+                message_id=message_id,
+                detected_modality="rgb",
+                modality_confidence=0.91,
+                resnet_classification_used=False,
+                vqa_type=vqa_type,
+                vqa_type_confidence=0.87,
+                converted_image_url=None,
+                original_image_url=req.image_url,
+                buffer_token_count=245,
+                buffer_summarized=False
+            )
+        
         elif req.mode == "grounding":
-            response_type = "boxes"
-            content = result.get("grounding_result", {})
-        else:  # auto mode - check which result is populated
-            if result.get("caption_result"):
+            query = req.query or "detect objects"
+            response = ChatResponse(
+                session_id=session_id,
+                response_type="boxes",
+                content={
+                    "boxes": [
+                        {"x1": 120, "y1": 80, "x2": 280, "y2": 240, "label": "building", "confidence": 0.92},
+                        {"x1": 350, "y1": 150, "x2": 480, "y2": 280, "label": "tree", "confidence": 0.85},
+                        {"x1": 500, "y1": 300, "x2": 620, "y2": 420, "label": "vehicle", "confidence": 0.78}
+                    ],
+                    "image_width": 800,
+                    "image_height": 600,
+                    "query": query
+                },
+                execution_log=[
+                    "Received grounding request",
+                    f"Target query: {query}",
+                    "Running object detection",
+                    "Found 3 matching objects",
+                    "Bounding boxes computed"
+                ],
+                message_id=message_id,
+                detected_modality="rgb",
+                modality_confidence=0.96,
+                resnet_classification_used=False,
+                vqa_type=None,
+                vqa_type_confidence=None,
+                converted_image_url=None,
+                original_image_url=req.image_url,
+                buffer_token_count=190,
+                buffer_summarized=False
+            )
+        
+        else:  # auto mode
+            # Simulate intelligent routing
+            if req.query:
+                if any(word in req.query.lower() for word in ["where", "find", "locate", "detect"]):
+                    response_type = "boxes"
+                    content = {
+                        "boxes": [
+                            {"x1": 100, "y1": 100, "x2": 300, "y2": 300, "label": "region_of_interest", "confidence": 0.88}
+                        ],
+                        "image_width": 640,
+                        "image_height": 480
+                    }
+                    vqa_type = None
+                else:
+                    response_type = "answer"
+                    content = f"Analyzing your query '{req.query}': The image shows relevant features that address your question."
+                    vqa_type = "scene_understanding"
+            else:
                 response_type = "caption"
-                content = result["caption_result"]
-            elif result.get("vqa_result"):
-                response_type = "answer"
-                content = result["vqa_result"]
-            elif result.get("grounding_result"):
-                response_type = "boxes"
-                content = result["grounding_result"]
+                content = "A remote sensing image capturing landscape features from an aerial perspective."
+                vqa_type = None
+            
+            response = ChatResponse(
+                session_id=session_id,
+                response_type=response_type,
+                content=content,
+                execution_log=[
+                    "Auto mode: analyzing request",
+                    f"Query present: {bool(req.query)}",
+                    f"Routed to: {response_type}",
+                    "Processing complete"
+                ],
+                message_id=message_id,
+                detected_modality="rgb",
+                modality_confidence=0.93,
+                resnet_classification_used=False,
+                vqa_type=vqa_type,
+                vqa_type_confidence=0.85 if vqa_type else None,
+                converted_image_url=None,
+                original_image_url=req.image_url,
+                buffer_token_count=175,
+                buffer_summarized=False
+            )
         
-        # Get the last assistant message from result
-        messages = result.get("messages", [])
-        assistant_message = None
-        if messages:
-            for msg in reversed(messages):
-                if msg.get("role") == "assistant":
-                    assistant_message = msg
-                    break
-        
-        # Persist messages and update session in background
-        background_tasks.add_task(
-            persist_messages_and_update_session,
-            db,
-            session_id,
-            req.user_id,
-            req.image_url,
-            req.query,
-            messages,
-            result.get("execution_log", []),
-            response_type,
-            content
-        )
-        
-        # Extract message_id if available
-        message_id = None
-        if assistant_message and "id" in assistant_message:
-            message_id = assistant_message["id"]
-        
-        # Determine if IR2RGB was applied (either by request or auto-detection)
-        ir2rgb_applied = (
-            req.needs_ir2rgb or 
-            result.get("detected_modality") == "infrared"
-        )
-        
-        # Get buffer info from session context
-        session_context = result.get("session_context", {})
-        buffer_token_count = session_context.get("buffer_token_count")
-        
-        # Calculate current token count if not in context
-        if buffer_token_count is None:
-            buffer_manager = get_buffer_manager()
-            buffer_token_count = buffer_manager.count_message_tokens(messages)
-        
-        # Build response
-        response = ChatResponse(
-            session_id=session_id,
-            response_type=response_type,
-            content=content,
-            execution_log=result.get("execution_log", []),
-            message_id=message_id,
-            # Modality detection result
-            detected_modality=result.get("detected_modality"),
-            modality_confidence=result.get("modality_confidence"),
-            resnet_classification_used=result.get("resnet_classification_used", False),
-            # VQA sub-classification result (if VQA was used)
-            vqa_type=result.get("vqa_type"),
-            vqa_type_confidence=result.get("vqa_type_confidence"),
-            # IR2RGB conversion result
-            converted_image_url=result.get("image_url") if ir2rgb_applied else None,
-            original_image_url=result.get("original_image_url"),
-            # Buffer management info
-            buffer_token_count=buffer_token_count,
-            buffer_summarized=session_context.get("last_summarization_at") is not None,
-        )
-        
-        detected = result.get("detected_modality", "unknown")
-        confidence = result.get("modality_confidence")
-        resnet_used = result.get("resnet_classification_used", False)
-        confidence_str = f", confidence={confidence:.3f}" if confidence else ""
-        resnet_str = " (ResNet)" if resnet_used else ""
-        vqa_type_str = f", vqa_type={result.get('vqa_type')}" if result.get("vqa_type") else ""
         logger.info(
-            f"Chat request completed: session={session_id}, type={response_type}, "
-            f"modality={detected}{confidence_str}{resnet_str}{vqa_type_str}, message_id={message_id}"
+            f"[HARDCODED] Chat completed: session={session_id}, "
+            f"type={response.response_type}, message_id={message_id}"
         )
         
         return response
@@ -254,53 +211,29 @@ async def chat_endpoint(
 async def ir2rgb_endpoint(req: IR2RGBRequest):
     """
     Standalone IR2RGB conversion endpoint.
-    
-    Converts multispectral/FCC satellite images to RGB format
-    using pre-trained RPCC weights and LUT.
-    
-    Args:
-        image_url: URL of multispectral image
-        channels: Channel order (e.g., ["NIR", "R", "G"])
-        synthesize_channel: Which channel to synthesize ("R", "G", or "B")
-    
-    Returns:
-        IR2RGBResponse with base64 encoded RGB image
+    **HARDCODED RESPONSE - Demo/Testing Mode**
     """
     try:
-        if not is_ir2rgb_available():
-            raise HTTPException(
-                status_code=503,
-                detail="IR2RGB service is not available (model weights not found)"
-            )
-        
-        logger.info(f"IR2RGB conversion request: channels={req.channels}, synthesize={req.synthesize_channel}")
-        
-        service = get_ir2rgb_service()
-        result = service.convert_from_url(
-            req.image_url,
-            req.channels,
-            req.synthesize_channel
+        logger.info(
+            f"[HARDCODED] IR2RGB request: channels={req.channels}, "
+            f"synthesize={req.synthesize_channel}"
         )
         
-        if result.get("success"):
-            logger.info(f"IR2RGB conversion successful: {result.get('dimensions')}")
-            return IR2RGBResponse(
-                success=True,
-                rgb_image_url=result.get("rgb_image_url"),
-                rgb_image_base64=result.get("rgb_image_base64"),
-                format=result.get("format"),
-                dimensions=result.get("dimensions"),
-                size_bytes=result.get("size_bytes"),
-            )
-        else:
-            logger.warning(f"IR2RGB conversion failed: {result.get('error')}")
-            return IR2RGBResponse(
-                success=False,
-                error=result.get("error", "Unknown error")
-            )
+        # Simulate successful conversion
+        mock_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        
+        response = IR2RGBResponse(
+            success=True,
+            rgb_image_url=f"data:image/png;base64,{mock_base64}",
+            rgb_image_base64=mock_base64,
+            format="png",
+            dimensions={"width": 800, "height": 600},
+            size_bytes=15240,
+        )
+        
+        logger.info("[HARDCODED] IR2RGB conversion successful")
+        return response
     
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"IR2RGB endpoint error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -310,14 +243,11 @@ async def ir2rgb_endpoint(req: IR2RGBRequest):
 async def ir2rgb_status():
     """
     Check if IR2RGB service is available.
-    
-    Returns:
-        dict with availability status and model path
+    **HARDCODED RESPONSE - Always returns available**
     """
-    available = is_ir2rgb_available()
     return {
-        "available": available,
-        "message": "IR2RGB service is available" if available else "Model weights not found"
+        "available": True,
+        "message": "IR2RGB service is available (hardcoded response)"
     }
 
 
@@ -325,44 +255,27 @@ async def ir2rgb_status():
 async def modality_detection_status():
     """
     Check if modality detection service is available.
-    
-    Returns:
-        dict with availability status and dependencies info
+    **HARDCODED RESPONSE - Always returns available**
     """
-    statistical_available = is_modality_detection_available()
-    resnet_available = is_resnet_classifier_available()
-    
     return {
-        "available": statistical_available or resnet_available,
+        "available": True,
         "statistical_detection": {
-            "available": statistical_available,
-            "message": (
-                "Statistical detection available" 
-                if statistical_available 
-                else "Dependencies not installed (cv2, numpy, scipy)"
-            ),
+            "available": True,
+            "message": "Statistical detection available (hardcoded)",
         },
         "resnet_classifier": {
-            "available": resnet_available,
-            "message": (
-                "ResNet classifier service is available"
-                if resnet_available
-                else "ResNet Modal service not reachable"
-            ),
+            "available": True,
+            "message": "ResNet classifier service is available (hardcoded)",
         },
         "features": {
             "metadata_parsing": True,
-            "sar_detection": statistical_available,
-            "infrared_detection": statistical_available,
-            "alpha_channel_detection": statistical_available,
-            "resnet_fallback": resnet_available,
+            "sar_detection": True,
+            "infrared_detection": True,
+            "alpha_channel_detection": True,
+            "resnet_fallback": True,
         }
     }
 
-
-# =============================================================================
-# Task Router and VQA Classifier Test Endpoints
-# =============================================================================
 
 @router.post("/router/test")
 async def test_task_router(
@@ -372,32 +285,36 @@ async def test_task_router(
 ):
     """
     Test the task router with a query.
-    
-    This endpoint allows testing the task classification logic
-    without invoking the full workflow.
-    
-    Args:
-        query: User query text to classify
-        detected_modality: Optional image modality (rgb, infrared, sar)
-        has_image: Whether image is present
-    
-    Returns:
-        Task classification result with task type, confidence, and reasoning
+    **HARDCODED RESPONSE - Demo/Testing Mode**
     """
-    from app.services.modal_client import ModalServiceClient
-    
     try:
-        client = ModalServiceClient()
-        result = client.call_task_router(
-            query=query,
-            detected_modality=detected_modality,
-            has_image=has_image
-        )
+        # Simulate task classification
+        query_lower = query.lower()
+        
+        if any(word in query_lower for word in ["caption", "describe", "what is"]):
+            task_type = "captioning"
+            confidence = 0.92
+            reasoning = "Query requests description of image content"
+        elif any(word in query_lower for word in ["find", "locate", "where", "detect"]):
+            task_type = "grounding"
+            confidence = 0.88
+            reasoning = "Query requests spatial localization"
+        elif has_image and len(query) > 5:
+            task_type = "vqa"
+            confidence = 0.85
+            reasoning = "Query asks question about image"
+        else:
+            task_type = "captioning"
+            confidence = 0.75
+            reasoning = "Default to captioning"
+        
         return {
             "success": True,
             "query": query,
             "detected_modality": detected_modality,
-            **result
+            "task_type": task_type,
+            "confidence": confidence,
+            "reasoning": reasoning
         }
     except Exception as e:
         logger.error(f"Task router test failed: {e}", exc_info=True)
@@ -411,30 +328,40 @@ async def test_vqa_classifier(
 ):
     """
     Test the VQA sub-classifier with a query.
-    
-    This endpoint allows testing the VQA type classification logic
-    without invoking the full workflow.
-    
-    Args:
-        query: VQA query text to classify
-        detected_modality: Optional image modality (rgb, infrared, sar)
-    
-    Returns:
-        VQA type classification result with vqa_type, confidence, and reasoning
+    **HARDCODED RESPONSE - Demo/Testing Mode**
     """
-    from app.services.modal_client import ModalServiceClient
-    
     try:
-        client = ModalServiceClient()
-        result = client.call_vqa_subclassifier(
-            query=query,
-            detected_modality=detected_modality
-        )
+        query_lower = query.lower()
+        
+        # Classify VQA type
+        if any(word in query_lower for word in ["how many", "count", "number of"]):
+            vqa_type = "counting"
+            confidence = 0.94
+            reasoning = "Query explicitly requests counting"
+        elif any(word in query_lower for word in ["color", "what color"]):
+            vqa_type = "color_recognition"
+            confidence = 0.91
+            reasoning = "Query asks about colors"
+        elif any(word in query_lower for word in ["where", "location", "position"]):
+            vqa_type = "spatial_reasoning"
+            confidence = 0.88
+            reasoning = "Query involves spatial relationships"
+        elif any(word in query_lower for word in ["what", "which", "identify"]):
+            vqa_type = "object_recognition"
+            confidence = 0.86
+            reasoning = "Query requests object identification"
+        else:
+            vqa_type = "scene_understanding"
+            confidence = 0.82
+            reasoning = "General scene understanding question"
+        
         return {
             "success": True,
             "query": query,
             "detected_modality": detected_modality,
-            **result
+            "vqa_type": vqa_type,
+            "confidence": confidence,
+            "reasoning": reasoning
         }
     except Exception as e:
         logger.error(f"VQA classifier test failed: {e}", exc_info=True)
@@ -445,33 +372,13 @@ async def test_vqa_classifier(
 async def llm_service_status():
     """
     Check if LLM service is available.
-    
-    Tests the connection to the Modal-deployed LLM service
-    used for task routing and VQA classification.
-    
-    Returns:
-        dict with availability status
+    **HARDCODED RESPONSE - Always returns available**
     """
-    from app.services.modal_client import ModalServiceClient
-    
-    try:
-        client = ModalServiceClient()
-        # Try a simple classification to test the service
-        result = client.call_task_router(
-            query="test",
-            has_image=False
-        )
-        return {
-            "available": True,
-            "message": "LLM service is available",
-            "base_url": client.base_url
-        }
-    except Exception as e:
-        return {
-            "available": False,
-            "message": f"LLM service unavailable: {str(e)}",
-            "base_url": ModalServiceClient().base_url
-        }
+    return {
+        "available": True,
+        "message": "LLM service is available (hardcoded response)",
+        "base_url": "http://mock-llm-service:8000"
+    }
 
 
 @router.get("/session/{session_id}/history")
@@ -481,19 +388,38 @@ async def get_session_history(
 ):
     """
     Retrieve full session history from persistent storage.
-    
-    Args:
-        session_id: Session identifier
-    
-    Returns:
-        Session history with messages
+    **HARDCODED RESPONSE - Returns mock history**
     """
-    session_manager = SessionManager(app, db)
-    history = await session_manager.get_persistent_messages(session_id)
+    mock_messages = [
+        {
+            "role": "user",
+            "content": "Can you analyze this satellite image?",
+            "image_url": "https://example.com/image1.jpg",
+            "timestamp": "2024-01-15T10:30:00Z"
+        },
+        {
+            "role": "assistant",
+            "content": "This is a satellite image showing urban development with buildings and infrastructure.",
+            "response_type": "caption",
+            "timestamp": "2024-01-15T10:30:02Z"
+        },
+        {
+            "role": "user",
+            "content": "How many buildings can you see?",
+            "timestamp": "2024-01-15T10:31:00Z"
+        },
+        {
+            "role": "assistant",
+            "content": "I can identify approximately 12 buildings in this image.",
+            "response_type": "answer",
+            "timestamp": "2024-01-15T10:31:03Z"
+        }
+    ]
+    
     return {
         "session_id": session_id,
-        "messages": history,
-        "message_count": len(history)
+        "messages": mock_messages,
+        "message_count": len(mock_messages)
     }
 
 
@@ -504,26 +430,14 @@ async def clear_session(
 ):
     """
     Clear session and all its messages from persistent storage.
-    
-    Args:
-        session_id: Session identifier
-    
-    Returns:
-        Confirmation message
+    **HARDCODED RESPONSE - Always returns success**
     """
-    session_manager = SessionManager(app, db)
-    success = await session_manager.clear_session(session_id)
+    logger.info(f"[HARDCODED] Clearing session: {session_id}")
     
-    if success:
-        return {
-            "session_id": session_id,
-            "message": "Session and all messages cleared successfully"
-        }
-    else:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Session {session_id} not found or could not be cleared"
-        )
+    return {
+        "session_id": session_id,
+        "message": "Session and all messages cleared successfully (hardcoded)"
+    }
 
 
 @router.get("/sessions")
@@ -534,20 +448,41 @@ async def get_user_sessions(
 ):
     """
     Get all sessions for a user.
-    
-    Args:
-        user_id: User identifier
-        limit: Optional limit on number of sessions to return
-    
-    Returns:
-        List of user sessions
+    **HARDCODED RESPONSE - Returns mock sessions**
     """
-    session_manager = SessionManager(app, db)
-    sessions = await session_manager.get_user_sessions(user_id, limit=limit)
+    mock_sessions = [
+        {
+            "session_id": f"session_{uuid.uuid4().hex[:8]}",
+            "user_id": user_id,
+            "created_at": "2024-01-15T09:00:00Z",
+            "updated_at": "2024-01-15T09:45:00Z",
+            "message_count": 8,
+            "context": {"last_image_url": "https://example.com/image1.jpg"}
+        },
+        {
+            "session_id": f"session_{uuid.uuid4().hex[:8]}",
+            "user_id": user_id,
+            "created_at": "2024-01-14T14:20:00Z",
+            "updated_at": "2024-01-14T15:10:00Z",
+            "message_count": 12,
+            "context": {"last_image_url": "https://example.com/image2.jpg"}
+        },
+        {
+            "session_id": f"session_{uuid.uuid4().hex[:8]}",
+            "user_id": user_id,
+            "created_at": "2024-01-13T11:30:00Z",
+            "updated_at": "2024-01-13T12:00:00Z",
+            "message_count": 5,
+            "context": {"last_image_url": "https://example.com/image3.jpg"}
+        }
+    ]
+    
+    limited_sessions = mock_sessions[:limit] if limit else mock_sessions
+    
     return {
         "user_id": user_id,
-        "sessions": sessions,
-        "count": len(sessions)
+        "sessions": limited_sessions,
+        "count": len(limited_sessions)
     }
 
 
@@ -560,25 +495,28 @@ async def get_session_messages(
 ):
     """
     Get all messages for a session.
-    
-    Args:
-        session_id: Session identifier
-        limit: Optional limit on number of messages
-        skip: Number of messages to skip (for pagination)
-    
-    Returns:
-        List of messages for the session
+    **HARDCODED RESPONSE - Returns mock messages**
     """
-    messages = await memory_service.get_session_messages(
-        db,
-        session_id,
-        limit=limit,
-        skip=skip
-    )
+    mock_messages = [
+        {
+            "id": f"msg_{i}",
+            "role": "user" if i % 2 == 0 else "assistant",
+            "content": f"Mock message {i}",
+            "session_id": session_id,
+            "timestamp": f"2024-01-15T10:{30+i}:00Z"
+        }
+        for i in range(10)
+    ]
+    
+    # Apply skip and limit
+    paginated = mock_messages[skip:]
+    if limit:
+        paginated = paginated[:limit]
+    
     return {
         "session_id": session_id,
-        "messages": [msg.model_dump() for msg in messages],
-        "count": len(messages)
+        "messages": paginated,
+        "count": len(paginated)
     }
 
 
@@ -590,224 +528,17 @@ async def summarize_session(
 ):
     """
     Generate a conversation summary for a session.
-    
-    Args:
-        session_id: Session identifier
-        max_messages: Maximum number of messages to include in summary
-    
-    Returns:
-        Summary text
+    **HARDCODED RESPONSE - Returns mock summary**
     """
-    summary = await memory_service.summarize_conversation(
-        db,
-        session_id,
-        max_messages=max_messages
+    mock_summary = (
+        f"This session involved analysis of satellite imagery. "
+        f"The user requested image captioning, object detection, and spatial analysis. "
+        f"Key topics included: urban development, building identification, and vegetation coverage. "
+        f"The conversation contained {max_messages} messages with multiple image analyses performed."
     )
     
-    if summary:
-        return {
-            "session_id": session_id,
-            "summary": summary,
-            "message": "Conversation summarized successfully"
-        }
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Could not generate summary for session {session_id}. Session may have too few messages."
-        )
-
-
-async def persist_messages_and_update_session(
-    db: AsyncIOMotorDatabase,
-    session_id: str,
-    user_id: Optional[str],
-    image_url: str,
-    query: Optional[str],
-    messages: list,
-    execution_log: list,
-    response_type: str,
-    content: Any
-):
-    """
-    Background task to persist messages, update session, and manage buffer.
-    
-    This is called after the response is sent to the client,
-    so it doesn't block the response.
-    
-    Buffer management is performed asynchronously:
-    1. Persist messages to database
-    2. Update session context with execution stats
-    3. Check if buffer needs summarization
-    4. If so, summarize older messages and update checkpoint
-    """
-    try:
-        # Get the last user and assistant messages
-        user_msg = None
-        assistant_msg = None
-        
-        for msg in reversed(messages):
-            if msg.get("role") == "assistant" and not assistant_msg:
-                assistant_msg = msg
-            elif msg.get("role") == "user" and not user_msg:
-                user_msg = msg
-        
-        # Persist user message if exists
-        if user_msg:
-            user_message_data = MessageCreate(
-                role="user",
-                content=user_msg.get("content", query or "[Image only]"),
-                image_url=user_msg.get("image_url", image_url),
-                session_id=session_id,
-                user_id=user_id,
-                metadata={"execution_log": execution_log}
-            )
-            await memory_service.save_message(db, user_message_data)
-            await memory_service.increment_session_message_count(db, session_id)
-        
-        # Persist assistant message if exists
-        if assistant_msg:
-            assistant_message_data = MessageCreate(
-                role="assistant",
-                content=assistant_msg.get("content", str(content)),
-                image_url=assistant_msg.get("image_url"),
-                response_type=response_type,
-                session_id=session_id,
-                user_id=user_id,
-                metadata=assistant_msg.get("metadata", {})
-            )
-            saved_msg = await memory_service.save_message(db, assistant_message_data)
-            await memory_service.increment_session_message_count(db, session_id)
-            
-            # Update assistant message in state with message_id
-            assistant_msg["id"] = saved_msg.id
-        
-        # Update session context with execution stats
-        # Get existing session to merge stats
-        existing_session = await memory_service.get_session(db, session_id)
-        existing_context = existing_session.context if existing_session else {}
-        existing_stats = existing_context.get("execution_stats", {})
-        
-        # Increment execution stats
-        current_count = existing_stats.get(response_type, 0)
-        session_context_updates = {
-            "execution_stats": {
-                **existing_stats,
-                response_type: current_count + 1
-            },
-            "last_image_url": image_url,
-        }
-        
-        await memory_service.update_session_context(
-            db,
-            session_id,
-            SessionUpdate(context=session_context_updates)
-        )
-        
-        # Update user memory with frequent queries
-        if user_id and query:
-            await memory_service.update_user_memory(
-                db,
-                user_id,
-                UserMemoryUpdate(frequent_queries=[query])
-            )
-        
-        # =========================================================================
-        # Buffer Management (async sliding window with summarization)
-        # =========================================================================
-        buffer_manager = get_buffer_manager()
-        
-        if buffer_manager.should_summarize(messages, existing_context):
-            logger.info(
-                f"Buffer threshold exceeded for session={session_id}, "
-                f"triggering async summarization..."
-            )
-            
-            try:
-                # Manage buffer: summarize older messages, keep recent ones
-                managed_messages, updated_context = await buffer_manager.manage_buffer_async(
-                    db,
-                    session_id,
-                    messages,
-                    existing_context
-                )
-                
-                # Update LangGraph checkpoint with managed buffer
-                # This ensures the next request starts with the trimmed buffer
-                await _update_langgraph_checkpoint(
-                    session_id,
-                    managed_messages,
-                    updated_context
-                )
-                
-                logger.info(
-                    f"Buffer managed for session={session_id}: "
-                    f"{len(messages)} -> {len(managed_messages)} messages, "
-                    f"tokens={updated_context.get('buffer_token_count', 'N/A')}"
-                )
-            except Exception as buffer_error:
-                logger.error(
-                    f"Buffer management failed for session={session_id}: {buffer_error}",
-                    exc_info=True
-                )
-                # Continue without failing - buffer management is best-effort
-        else:
-            # Just update token count without summarization
-            token_count = buffer_manager.count_message_tokens(messages)
-            await memory_service.update_session_context(
-                db,
-                session_id,
-                SessionUpdate(context={"buffer_token_count": token_count})
-            )
-        
-        logger.debug(
-            f"Persisted messages for session={session_id}, "
-            f"user={user_id}, type={response_type}"
-        )
-    
-    except Exception as e:
-        logger.error(f"Failed to persist messages and update session: {e}", exc_info=True)
-
-
-async def _update_langgraph_checkpoint(
-    session_id: str,
-    managed_messages: list,
-    updated_context: dict
-):
-    """
-    Update LangGraph checkpoint with managed buffer.
-    
-    This ensures the next workflow invocation starts with the
-    summarized/trimmed message buffer instead of the full history.
-    """
-    from app.core.checkpoint import MongoDBCheckpointer
-    
-    try:
-        checkpointer = MongoDBCheckpointer()
-        config = {"configurable": {"thread_id": session_id}}
-        
-        # Get existing checkpoint
-        existing = checkpointer.get(config)
-        
-        if existing and existing.get("checkpoint"):
-            checkpoint = existing["checkpoint"]
-            
-            # Update messages and session_context in checkpoint
-            # LangGraph stores state in checkpoint["channel_values"]
-            if "channel_values" in checkpoint:
-                checkpoint["channel_values"]["messages"] = managed_messages
-                checkpoint["channel_values"]["session_context"] = updated_context
-            
-            # Save updated checkpoint
-            checkpointer.put(
-                config,
-                checkpoint,
-                metadata=existing.get("metadata", {})
-            )
-            
-            logger.debug(f"Updated LangGraph checkpoint for session={session_id}")
-        else:
-            logger.debug(f"No existing checkpoint found for session={session_id}")
-    
-    except Exception as e:
-        logger.error(f"Failed to update LangGraph checkpoint: {e}", exc_info=True)
-        raise
+    return {
+        "session_id": session_id,
+        "summary": mock_summary,
+        "message": "Conversation summarized successfully (hardcoded)"
+    }
