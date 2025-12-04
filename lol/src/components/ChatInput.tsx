@@ -254,7 +254,7 @@ export function ChatInput({
   const handleSendClick = async () => {
     // guard: don't send if backend processing, image uploading, or no image uploaded
     if ((content.trim() || selectedImage) && !isProcessing && !isUploadingImage && imageUploaded) {
-      const image_url = selectedImage ? await uploadImage(user?.id) : "https://isro-vision-upload.s3.us-east-1.amazonaws.com/uploads/logo.png";
+      const image_url = selectedImage ? await uploadImage(user?.id) : undefined;
 
       const data = {
         text: content,

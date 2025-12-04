@@ -191,10 +191,9 @@ export function ChatHistoryPage({ onSelectChat }: ChatHistoryPageProps) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="text-white font-medium truncate">
-                          {chat.image_url ? "📸 Image Chat" : "💬 Text Chat"}
+                          {chat.preview || (chat.image_url ? "📸 Image Chat" : "💬 Text Chat")}
                         </h3>
                       </div>
-                      <p className="text-gray-400 text-sm mb-3 line-clamp-2">{chat.preview}</p>
                       <div className="flex items-center gap-4 text-xs text-gray-500">
                         <span className="flex items-center gap-1.5">
                           <Calendar className="w-3.5 h-3.5" />

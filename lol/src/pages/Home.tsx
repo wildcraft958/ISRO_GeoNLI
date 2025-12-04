@@ -21,7 +21,7 @@ import DropZone from "@/components/Dropzone";
 export interface Message {
   id: string;
   type: "user" | "ai";
-  content: string;
+  content: any;
   image_url?: string;
   aiImage?: string;
 }
@@ -168,6 +168,10 @@ export default function Home() {
     setCurrentPage("chat");
     setCurrentChatId(null);
     setLastQueryId(null); // Reset last query ID
+    // Reset image state to prompt for image upload
+    setSelectedImage(null);
+    setImageUploaded(false);
+    setImgFile(null);
   };
 
   const handleSelectChat = async (chatId: string) => {
@@ -258,22 +262,18 @@ export default function Home() {
     }
     setMode(sampleMode);
     
-    // Set image state
-    setSelectedImage(sample.imageUrl);
-    setImageUploaded(true);
-    
     // Set the page to chat
     setCurrentPage("chat");
     
     // Prepare the message data
     const messageText = sample.mode === "caption" ? "" : sample.analysis;
     
-    // Create user message for display
+    // Create user message for display (with image for first query)
     const userMessage: Message = {
       id: Date.now().toString(),
       type: "user",
       content: messageText,
-      image_url: sample.imageUrl,
+      image_url: sample.imageUrl, // Image will be shown in first message
     };
     
     setMessages([userMessage]);
@@ -292,7 +292,7 @@ export default function Home() {
       const chatId = createChatResponse.id;
       setCurrentChatId(chatId);
 
-      // Create the initial query for the new chat
+      // Create the initial query for the new chat (parent_id = null for first query)
       const createQueryResponse = await chatService.createQuery(
         null, // parent_id is null for the first query
         chatId,
@@ -317,8 +317,10 @@ export default function Home() {
         "B" // ir2rgbSynthesize
       );
 
+      console.log("response", response);
+
       // Create AI message from response
-      const aiResponseContent = typeof response.content === "string" ? response.content : "No response from model";
+      const aiResponseContent = response.content ? response.content : "No response from model";
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: "ai",
@@ -334,6 +336,11 @@ export default function Home() {
 
       // Save AI message to state
       setMessages((prev) => [...prev, aiMessage]);
+      
+      // Clear image state after first query is sent
+      // This ensures subsequent messages won't include the image
+      setSelectedImage(null);
+      setImageUploaded(true); // Keep input enabled for continuing the conversation
     } catch (error) {
       console.error("Failed to process sample:", error);
       const errorMessage: Message = {
@@ -342,6 +349,9 @@ export default function Home() {
         content: "Sorry, I encountered an error processing the sample. Please try again.",
       };
       setMessages((prev) => [...prev, errorMessage]);
+      // Clear image state even on error
+      setSelectedImage(null);
+      setImageUploaded(true);
     } finally {
       setIsProcessing(false);
     }
