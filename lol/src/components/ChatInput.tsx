@@ -9,8 +9,7 @@ import {
   X,
   Mic,
   MicOff,
-  
-  Upload,
+  Zap,
 } from "lucide-react";
 import type { Mode } from "../pages/Home";
 import { BACKEND_URL ,routes} from "@/lib/api";
@@ -291,14 +290,6 @@ export function ChatInput({
     inputRef.current?.focus();
   };
 
-  const handleSlashUpload = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setShowSlashMenu(false);
-    setContent("");
-    fileInputRef.current?.click();
-  };
-
   useEffect(() => {
     const currentRef = inputRef.current;
     if (currentRef) {
@@ -369,6 +360,18 @@ export function ChatInput({
               Options
             </div>
             <button
+              onMouseDown={(e) => selectMode("auto", e)}
+              className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-cyan-500/10 transition-colors group/item cursor-pointer"
+            >
+              <div className="p-1.5 rounded bg-blue-500/20 text-blue-400 group-hover/item:text-blue-300">
+                <Zap size={16} />
+              </div>
+              <div>
+                <div className="text-cyan-100 text-sm font-medium">Auto</div>
+                <div className="text-cyan-500/50 text-xs">Automatic mode detection</div>
+              </div>
+            </button>
+            <button
               onMouseDown={(e) => selectMode("vqa", e)}
               className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-cyan-500/10 transition-colors group/item cursor-pointer"
             >
@@ -402,19 +405,6 @@ export function ChatInput({
               <div>
                 <div className="text-cyan-100 text-sm font-medium">Grounding</div>
                 <div className="text-cyan-500/50 text-xs">Locate specific objects</div>
-              </div>
-            </button>
-            <div className="h-px bg-cyan-800/30 my-1 mx-2"></div>
-            <button
-              onMouseDown={handleSlashUpload}
-              className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-cyan-500/10 transition-colors group/item cursor-pointer"
-            >
-              <div className="p-1.5 rounded bg-blue-500/20 text-blue-400 group-hover/item:text-blue-300">
-                <Upload size={16} />
-              </div>
-              <div>
-                <div className="text-cyan-100 text-sm font-medium">Upload Image</div>
-                <div className="text-cyan-500/50 text-xs">Attach file from device</div>
               </div>
             </button>
           </div>
@@ -496,7 +486,11 @@ export function ChatInput({
                     ? "Please upload an image first to start chatting..."
                     : mode === "grounding"
                       ? "Describe objects to locate..."
-                      : "Ask anything about the satellite data..."
+                      : mode === "captioning"
+                        ? "Describe the image..."
+                        : mode === "auto"
+                          ? "Ask anything (auto mode)..."
+                          : "Ask anything about the satellite data..."
               }
               rows={1}
               className="w-full bg-transparent text-cyan-100 placeholder-cyan-700/50 px-4 py-4 focus:outline-none resize-none scrollbar-none min-h-14 text-[15px] relative z-10"
@@ -554,6 +548,12 @@ export function ChatInput({
           <div className="flex justify-between items-center px-3 pb-3 pt-1">
             {/* Mode Tabs - Visible only on larger screens (md and up) */}
             <div className="hidden md:flex items-center gap-1.5">
+              <ModePill
+                active={mode === "auto"}
+                icon={<Zap size={13} />}
+                label="Auto"
+                onClick={() => setMode("auto")}
+              />
               <ModePill
                 active={mode === "vqa"}
                 icon={<MessageSquare size={13} />}
@@ -630,6 +630,12 @@ export function ChatInput({
       {/* Mode Tabs - Floating below chat box, visible only on smaller screens (below md) */}
       <div className="mt-4 flex justify-center md:hidden">
         <div className="inline-flex items-center gap-1.5 bg-linear-to-r from-cyan-500/20 to-blue-600/20 backdrop-blur-md border border-cyan-500/40 rounded-full p-1 shadow-lg shadow-cyan-500/30">
+          <ModePill
+            active={mode === "auto"}
+            icon={<Zap size={13} />}
+            label="Auto"
+            onClick={() => setMode("auto")}
+          />
           <ModePill
             active={mode === "vqa"}
             icon={<MessageSquare size={13} />}

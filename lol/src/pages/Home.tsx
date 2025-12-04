@@ -24,7 +24,7 @@ export interface Message {
   aiImage?: string;
 }
 
-export type Mode = "captioning" | "vqa" | "grounding";
+export type Mode = "captioning" | "vqa" | "grounding"|"auto";
 
 export default function Home() {
   const { user } = useUser();
@@ -35,7 +35,7 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedImage,setSelectedImage]=useState<string|null>(null)
-  const [mode, setMode] = useState<Mode>("vqa");
+  const [mode, setMode] = useState<Mode>("auto");
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [lastQueryId, setLastQueryId] = useState<string | null>(null); // New state for last query ID
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -259,6 +259,9 @@ export default function Home() {
       sampleMode = "vqa";
     } else if (sample.mode === "grounding") {
       sampleMode = "grounding";
+    }
+    else if (sample.mode === "auto") {
+      sampleMode = "auto";
     }
     setMode(sampleMode);
     
