@@ -248,10 +248,50 @@ export default function Home() {
         
         // Add AI message (response) if it exists
         if (query.response) {
+          // Check if response is a string or object with boxes
+          let responseContent: any = query.response;
+          
+          // Try to parse if it's a stringified JSON
+          if (typeof responseContent === "string") {
+            try {
+              responseContent = JSON.parse(responseContent);
+            } catch (e) {
+              // If parsing fails, it's a regular string
+              responseContent = query.response;
+            }
+          }
+          
+          // Extract display content and boxes data
+          let displayContent: string;
+          let boxes: Array<{ x1: number; y1: number; x2: number; y2: number; label?: string; confidence?: number }> | undefined;
+          let imageWidth: number | undefined;
+          let imageHeight: number | undefined;
+          let aiImageUrl: string | undefined;
+          
+          if (typeof responseContent === "string") {
+            displayContent = responseContent;
+          } else if (responseContent && typeof responseContent === "object" && "boxes" in responseContent) {
+            // Response has boxes (grounding response)
+            console.log("Loading response with boxes from history:", responseContent);
+            displayContent = ""; // Don't display text for boxes response
+            boxes = responseContent.boxes;
+            imageWidth = responseContent.image_width;
+            imageHeight = responseContent.image_height;
+            // Use the chat's image_url for displaying boxes
+            aiImageUrl = selectedChat?.image_url || undefined;
+          } else {
+            // Other object types
+            displayContent = JSON.stringify(responseContent);
+          }
+          
           loadedMessages.push({
             id: `${query.id}_ai`,
             type: "ai",
-            content: query.response,
+            content: displayContent,
+            aiImage: aiImageUrl,
+            boxes: boxes,
+            imageWidth: imageWidth,
+            imageHeight: imageHeight,
           });
         }
       });
