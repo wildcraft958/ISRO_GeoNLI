@@ -47,7 +47,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
         )}
 
         {/* Text Bubble */}
-        {message.content && message.content.trim() !== "" && (
+        {(message.content && message.content.trim() !== "") || (message.boxes && message.confidence !== undefined) ? (
           <div
             className={`px-5 py-3.5 rounded-2xl shadow-lg ${
               isAI
@@ -55,9 +55,16 @@ export function ChatMessage({ message }: ChatMessageProps) {
                 : "  bg-blue-500/20 text-white"
             }`}
           >
-            <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+            {message.content && message.content.trim() !== "" && (
+              <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+            )}
+            {message.boxes && message.confidence !== undefined && (
+              <p className="text-sm text-cyan-300 mt-2 font-medium">
+                Confidence: <span className="text-cyan-200 font-bold">{(message.confidence * 100).toFixed(0)}%</span>
+              </p>
+            )}
           </div>
-        )}
+        ) : null}
 
         {/* AI Image if present (AI generated annotated image) */}
         {message.aiImage && (
@@ -156,12 +163,33 @@ function AnnotatedImage({
         ctx.rect(x1, y1, x2 - x1, y2 - y1);
         ctx.stroke();
 
-        // Draw confidence label if available
+        // Draw confidence label above the box if available
         if (confidence !== undefined) {
           ctx.fillStyle = "red";
-          ctx.font = "14px Arial";
+          ctx.font = "bold 14px Arial";
+          ctx.textAlign = "left";
+          ctx.textBaseline = "bottom";
+          
+          // Draw background rectangle for better visibility
+          const text = `${(confidence * 100).toFixed(0)}%`;
+          const textMetrics = ctx.measureText(text);
+          const textWidth = textMetrics.width;
+          const textHeight = 16;
+          const padding = 4;
+          
+          ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+          ctx.fillRect(
+            x1 - padding,
+            y1 - textHeight - padding - 5,
+            textWidth + padding * 2,
+            textHeight + padding * 2
+          );
+          
+          // Draw confidence text
+          ctx.fillStyle = "red";
+          ctx.font = "bold 14px Arial";
           ctx.fillText(
-            `Confidence: ${(confidence * 100).toFixed(0)}%`,
+            text,
             x1,
             y1 - 5
           );
