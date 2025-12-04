@@ -124,10 +124,12 @@ async def chat_endpoint(
                 response_type="boxes",
                 content={
                     "boxes": [
-                        {"x1": 120, "y1": 80, "x2": 280, "y2": 240, "label": "building", "confidence": 0.92},
-                        {"x1": 350, "y1": 150, "x2": 480, "y2": 280, "label": "tree", "confidence": 0.85},
-                        {"x1": 500, "y1": 300, "x2": 620, "y2": 420, "label": "vehicle", "confidence": 0.78}
+                        {"x": 120, "y": 80},
+                        {"x": 120, "y": 180},
+                        {"x": 220, "y": 80},
+                        {"x": 220, "y": 180},
                     ],
+                    "confidence": 0.92,
                     "image_width": 800,
                     "image_height": 600,
                     "query": query

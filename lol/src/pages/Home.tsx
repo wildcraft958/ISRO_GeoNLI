@@ -22,7 +22,8 @@ export interface Message {
   content: any;
   image_url?: string;
   aiImage?: string;
-  boxes?: Array<{ x1: number; y1: number; x2: number; y2: number; label?: string; confidence?: number }>;
+  boxes?: Array<{ x: number; y: number }>; // Array of 4 points for bounding box
+  confidence?: number;
   imageWidth?: number;
   imageHeight?: number;
 }
@@ -147,7 +148,8 @@ export default function Home() {
       }
       
       // Extract boxes and image dimensions if present
-      let boxes: Array<{ x1: number; y1: number; x2: number; y2: number; label?: string; confidence?: number }> | undefined;
+      let boxes: Array<{ x: number; y: number }> | undefined;
+      let confidence: number | undefined;
       let imageWidth: number | undefined;
       let imageHeight: number | undefined;
       let aiImageUrl: string | undefined;
@@ -157,6 +159,7 @@ export default function Home() {
           response.content?.boxes &&
           response.content.boxes.length > 0) {
         boxes = response.content.boxes;
+        confidence = (response.content as any).confidence;
         imageWidth = response.content.image_width;
         imageHeight = response.content.image_height;
         // Use the original image URL if available, otherwise use the grounding annotated image
@@ -263,7 +266,8 @@ export default function Home() {
           
           // Extract display content and boxes data
           let displayContent: string;
-          let boxes: Array<{ x1: number; y1: number; x2: number; y2: number; label?: string; confidence?: number }> | undefined;
+          let boxes: Array<{ x: number; y: number }> | undefined;
+          let confidence: number | undefined;
           let imageWidth: number | undefined;
           let imageHeight: number | undefined;
           let aiImageUrl: string | undefined;
@@ -275,6 +279,7 @@ export default function Home() {
             console.log("Loading response with boxes from history:", responseContent);
             displayContent = ""; // Don't display text for boxes response
             boxes = responseContent.boxes;
+            confidence = responseContent.confidence;
             imageWidth = responseContent.image_width;
             imageHeight = responseContent.image_height;
             // Use the chat's image_url for displaying boxes
@@ -290,6 +295,7 @@ export default function Home() {
             content: displayContent,
             aiImage: aiImageUrl,
             boxes: boxes,
+            confidence: confidence,
             imageWidth: imageWidth,
             imageHeight: imageHeight,
           });
@@ -410,7 +416,8 @@ export default function Home() {
       }
       
       // Extract boxes and image dimensions if present
-      let boxes: Array<{ x1: number; y1: number; x2: number; y2: number; label?: string; confidence?: number }> | undefined;
+      let boxes: Array<{ x: number; y: number }> | undefined;
+      let confidence: number | undefined;
       let imageWidth: number | undefined;
       let imageHeight: number | undefined;
       let aiImageUrl: string | undefined;
@@ -420,6 +427,7 @@ export default function Home() {
           response.content?.boxes &&
           response.content.boxes.length > 0) {
         boxes = response.content.boxes;
+        confidence = (response.content as any).confidence;
         imageWidth = response.content.image_width;
         imageHeight = response.content.image_height;
         // Use the original image URL if available, otherwise use the grounding annotated image
@@ -432,6 +440,7 @@ export default function Home() {
         content: displayContent,
         aiImage: aiImageUrl,
         boxes: boxes,
+        confidence: confidence,
         imageWidth: imageWidth,
         imageHeight: imageHeight,
       };

@@ -7,7 +7,8 @@ interface Message {
   content: string;
   image_url?: string;
   aiImage?: string;
-  boxes?: Array<{ x1: number; y1: number; x2: number; y2: number; label?: string; confidence?: number }>;
+  boxes?: Array<{ x: number; y: number }>; // Array of 4 points for bounding box
+  confidence?: number;
   imageWidth?: number;
   imageHeight?: number;
 }
@@ -65,6 +66,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
               <AnnotatedImage
                 imageUrl={message.aiImage}
                 boxes={message.boxes}
+                confidence={message.confidence}
                 imageWidth={message.imageWidth}
                 imageHeight={message.imageHeight}
               />
@@ -85,11 +87,13 @@ export function ChatMessage({ message }: ChatMessageProps) {
 function AnnotatedImage({
   imageUrl,
   boxes,
+  confidence,
   imageWidth,
   imageHeight,
 }: {
   imageUrl: string;
-  boxes: Array<{ x1: number; y1: number; x2: number; y2: number; label?: string; confidence?: number }>;
+  boxes: Array<{ x: number; y: number }>;
+  confidence?: number;
   imageWidth?: number;
   imageHeight?: number;
 }) {
@@ -131,29 +135,38 @@ function AnnotatedImage({
       ctx.strokeStyle = "red";
       ctx.lineWidth = 3;
 
-      boxes.forEach((box) => {
+      // Convert 4 points to bounding box (x1, y1, x2, y2)
+      if (boxes.length >= 4) {
         // Scale coordinates to match displayed image size
-        const x1 = box.x1 * scaleX;
-        const y1 = box.y1 * scaleY;
-        const x2 = box.x2 * scaleX;
-        const y2 = box.y2 * scaleY;
+        const scaledPoints = boxes.map((point) => ({
+          x: point.x * scaleX,
+          y: point.y * scaleY,
+        }));
+
+        // Find min/max to create bounding box
+        const xCoords = scaledPoints.map((p) => p.x);
+        const yCoords = scaledPoints.map((p) => p.y);
+        const x1 = Math.min(...xCoords);
+        const y1 = Math.min(...yCoords);
+        const x2 = Math.max(...xCoords);
+        const y2 = Math.max(...yCoords);
 
         // Draw rectangle
         ctx.beginPath();
         ctx.rect(x1, y1, x2 - x1, y2 - y1);
         ctx.stroke();
 
-        // Draw label if available
-        if (box.label) {
+        // Draw confidence label if available
+        if (confidence !== undefined) {
           ctx.fillStyle = "red";
           ctx.font = "14px Arial";
           ctx.fillText(
-            `${box.label}${box.confidence ? ` (${(box.confidence * 100).toFixed(0)}%)` : ""}`,
+            `Confidence: ${(confidence * 100).toFixed(0)}%`,
             x1,
             y1 - 5
           );
         }
-      });
+      }
     };
 
     if (image.complete) {
@@ -175,7 +188,7 @@ function AnnotatedImage({
       image.removeEventListener("load", handleImageLoad);
       window.removeEventListener("resize", handleResize);
     };
-  }, [imageUrl, boxes, imageWidth, imageHeight]);
+  }, [imageUrl, boxes, confidence, imageWidth, imageHeight]);
 
   return (
     <div ref={containerRef} className="relative inline-block">
