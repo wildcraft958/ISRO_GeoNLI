@@ -178,14 +178,11 @@ export default function Home() {
       const chats = await chatService.getChats(user?.id || "");
       const selectedChat = chats.find((chat: any) => chat.id === chatId);
       
-      // Restore image state from chat
-      if (selectedChat?.image_url) {
-        setSelectedImage(selectedChat.image_url);
-        setImageUploaded(true);
-      } else {
-        setSelectedImage(null);
-        setImageUploaded(false);
-      }
+      // When loading a chat from history, don't set selectedImage for sending
+      // The image will be displayed in the first message (where parent_id = null)
+      // but won't be sent with new messages
+      setSelectedImage(null);
+      setImageUploaded(true); // Enable input for continuing the conversation
 
       // Fetch queries for this chat to build messages
       const queries = await chatService.getChatQueries(chatId);
@@ -244,53 +241,110 @@ export default function Home() {
     }
   };
 
-  const handleTrySample = (sample: SampleData) => {
+  const handleTrySample = async (sample: SampleData) => {
+    // Reset chat state to start a new chat
+    setCurrentChatId(null);
+    setLastQueryId(null);
+    setMessages([]);
+    
     // Set the mode to match the sample
+    let sampleMode: Mode = "vqa";
     if (sample.mode === "caption") {
-      setMode("captioning");
+      sampleMode = "captioning";
     } else if (sample.mode === "question") {
-      setMode("vqa");
-    } else {
-      setMode(sample.mode);
+      sampleMode = "vqa";
+    } else if (sample.mode === "grounding") {
+      sampleMode = "grounding";
     }
-
+    setMode(sampleMode);
+    
+    // Set image state
+    setSelectedImage(sample.imageUrl);
+    setImageUploaded(true);
+    
+    // Set the page to chat
+    setCurrentPage("chat");
+    
+    // Prepare the message data
+    const messageText = sample.mode === "caption" ? "" : sample.analysis;
+    
+    // Create user message for display
     const userMessage: Message = {
       id: Date.now().toString(),
       type: "user",
-      content: sample.mode === "caption" ? "" : sample.analysis,
+      content: messageText,
       image_url: sample.imageUrl,
     };
-
+    
     setMessages([userMessage]);
     setIsProcessing(true);
-    setCurrentPage("chat");
 
-    // Generate AI response after delay
-    setTimeout(() => {
-      let aiResponse = "";
-      let aiImage: string | undefined;
-
-      if (sample.mode === "caption") {
-        aiResponse = `Caption Analysis:\n\n${sample.analysis}\n\nThis satellite imagery captures ${sample.description.toLowerCase()}. The visual patterns indicate distinct characteristics typical of ${sample.category} terrain, with clear evidence of the described features.`;
-      } else if (sample.mode === "grounding") {
-        // For grounding mode, respond to the detection/find query with annotated image
-        aiResponse = `Object Detection Results:**\n\n**Query:** ${sample.analysis}\n\n**Detection Summary:**\n- Total objects detected: 2\n- Primary features: Aircraft\n- Detection confidence: 96.3%\n- Bounding boxes generated: ✓\n\n**Analysis:** Successfully located and mapped all requested objects in the satellite imagery. See annotated image below with detected objects highlighted.`;
-        aiImage = groundingAnnotated;
-      } else {
-        // question mode
-        aiResponse = ` **Visual Question Answering:**\n\n**Question:** ${sample.analysis}\n\n**Answer:** Based on the satellite imagery analysis, this ${sample.category} region shows ${sample.description.toLowerCase()}. The visual data suggests healthy patterns with characteristic features clearly visible in the spectral bands. The density and distribution indicate normal conditions for this terrain type.`;
+    try {
+      if (!user?.id) {
+        throw new Error("User must be authenticated to create a chat/query");
       }
 
+      // Create a new chat with the sample image
+      const createChatResponse = await chatService.createChat(
+        user.id,
+        sample.imageUrl
+      );
+      const chatId = createChatResponse.id;
+      setCurrentChatId(chatId);
+
+      // Create the initial query for the new chat
+      const createQueryResponse = await chatService.createQuery(
+        null, // parent_id is null for the first query
+        chatId,
+        messageText,
+        null, // response is null initially
+        sample.mode === "caption" ? "image_query" : "text_query",
+        sampleMode
+      );
+      const queryId = createQueryResponse.id;
+      setLastQueryId(queryId);
+
+      // Send message to orchestrator endpoint
+      const response = await chatService.sendMessage(
+        chatId,
+        user.id,
+        messageText,
+        sample.imageUrl,
+        sampleMode,
+        true, // modalityDetectionEnabled
+        false, // needsIr2rgb
+        [], // ir2rgbChannels
+        "B" // ir2rgbSynthesize
+      );
+
+      // Create AI message from response
+      const aiResponseContent = typeof response.content === "string" ? response.content : "No response from model";
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: "ai",
-        content: aiResponse,
-        aiImage: aiImage,
+        content: aiResponseContent,
+        aiImage:
+          sampleMode === "grounding" &&
+          typeof response.content !== "string" &&
+          response.content?.boxes &&
+          response.content.boxes.length > 0
+            ? groundingAnnotated
+            : undefined,
       };
 
+      // Save AI message to state
       setMessages((prev) => [...prev, aiMessage]);
+    } catch (error) {
+      console.error("Failed to process sample:", error);
+      const errorMessage: Message = {
+        id: (Date.now() + 2).toString(),
+        type: "ai",
+        content: "Sorry, I encountered an error processing the sample. Please try again.",
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
       setIsProcessing(false);
-    }, 5000);
+    }
   };
 
   return (
