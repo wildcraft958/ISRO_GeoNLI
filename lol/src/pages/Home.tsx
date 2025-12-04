@@ -8,14 +8,12 @@ import { ChatInput } from "../components/ChatInput";
 import Starfield from "react-starfield";
 import { ChatHistoryPage } from "./ChatHistoryPage";
 import { chatService } from "@/services/chatService";
-import { apiClient } from "@/lib/api";
 import type { SampleData } from "./ExploreSamplesPage";
 import { ExploreSamplesPage } from "./ExploreSamplesPage";
 import Lottie from "lottie-react";
 import { ProcessingIndicator } from "../components/ProcessingIndicator";
 import groundingAnnotated from "../assets/sat_demo.jpg";
 import radar from "@/assets/radar.json";
-import { routes } from "@/lib/api";
 import DropZone from "@/components/Dropzone";
 
 export interface Message {
@@ -130,11 +128,11 @@ export default function Home() {
       );
 
       // Create AI message from response
-      const aiResponseContent = typeof response.content === "string" ? response.content : "No response from model";
+      const aiResponseContent = response.content ?? "No response from model";
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: "ai",
-        content: aiResponseContent,
+        content: typeof aiResponseContent === "string" ? aiResponseContent : aiResponseContent,
         aiImage:
           mode === "grounding" &&
           typeof response.content !== "string" &&
@@ -147,8 +145,10 @@ export default function Home() {
       // Save AI message to state
       setMessages((prev) => [...prev, aiMessage]);
 
-      // TODO: Update the query with the AI response when backend endpoint is available
-      // For now, queries are created with null response and updated later if needed
+      // Update the query with the AI response
+      if (queryId) {
+        await chatService.updateQueryResponse(queryId, response.content);
+      }
     } catch (error) {
       console.error("Failed to send message:", error);
       const errorMessage: Message = {
@@ -320,11 +320,11 @@ export default function Home() {
       console.log("response", response);
 
       // Create AI message from response
-      const aiResponseContent = response.content ? response.content : "No response from model";
+      const aiResponseContent = response.content ?? "No response from model";
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: "ai",
-        content: aiResponseContent,
+        content: typeof aiResponseContent === "string" ? aiResponseContent : aiResponseContent,
         aiImage:
           sampleMode === "grounding" &&
           typeof response.content !== "string" &&
@@ -336,6 +336,11 @@ export default function Home() {
 
       // Save AI message to state
       setMessages((prev) => [...prev, aiMessage]);
+
+      // Update the query with the AI response
+      if (queryId) {
+        await chatService.updateQueryResponse(queryId, response.content);
+      }
       
       // Clear image state after first query is sent
       // This ensures subsequent messages won't include the image

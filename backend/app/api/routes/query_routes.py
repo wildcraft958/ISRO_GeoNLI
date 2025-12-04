@@ -1,7 +1,7 @@
 from app.api.deps import get_db_dep
-from app.schemas.query_schema import QueryCreate,QueryPublic 
+from app.schemas.query_schema import QueryCreate, QueryPublic, QueryUpdate
 from app.services import query_service
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Response, status, HTTPException
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from typing import Dict, List
 
@@ -55,5 +55,27 @@ async def get_queries_by_user_endpoint(
     """
     queries_by_chat = await query_service.get_queries_by_user(db, user_id)
     return queries_by_chat
+
+
+@router.put("/{query_id}", response_model=QueryPublic)
+async def update_query_response_endpoint(
+    query_id: str,
+    payload: QueryUpdate,
+    db: AsyncIOMotorDatabase = Depends(get_db_dep),
+):
+    """
+    Update the response field of a query.
+    
+    Args:
+        query_id: The ID of the query to update
+        payload: The update data containing the response
+    
+    Returns:
+        The updated query
+    """
+    updated_query = await query_service.update_query_response(db, query_id, payload.response)
+    if not updated_query:
+        raise HTTPException(status_code=404, detail="Query not found")
+    return updated_query
 
 

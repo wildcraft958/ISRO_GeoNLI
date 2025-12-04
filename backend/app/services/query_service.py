@@ -1,7 +1,8 @@
 from typing import Optional, List, Dict, Any
+from bson import ObjectId
 
 from app.models.query import query_to_public
-from app.schemas.query_schema import QueryCreate, QueryPublic 
+from app.schemas.query_schema import QueryCreate, QueryPublic, QueryUpdate 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo.errors import DuplicateKeyError
 
@@ -44,4 +45,24 @@ async def get_queries_by_user(db: AsyncIOMotorDatabase, user_id: str) -> Dict[st
             result[chat_id] = queries
     
     return result
+
+
+async def update_query_response(db: AsyncIOMotorDatabase, query_id: str, response: Any) -> Optional[QueryPublic]:
+    """Update the response field of a query."""
+    try:
+        result = await db[COLLECTION_NAME].update_one(
+            {"_id": ObjectId(query_id)},
+            {"$set": {"response": response}}
+        )
+        
+        if result.modified_count == 0:
+            return None
+        
+        updated = await db[COLLECTION_NAME].find_one({"_id": ObjectId(query_id)})
+        if updated:
+            return QueryPublic(**query_to_public(updated))
+        return None
+    except Exception as e:
+        print(f"Error updating query: {e}")
+        return None
 

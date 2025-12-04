@@ -35,7 +35,7 @@ export interface CreateQueryResponse {
   parent_id: string;
   chat_id: string;
   request: string;
-  response: string;
+  response: any; // Can be string or complex object (e.g., grounding boxes)
   type: string;
   created_at?: string;
 }
@@ -45,7 +45,7 @@ export interface QueryData {
   chat_id: string;
   parent_id: string;
   request: string;
-  response: string;
+  response: any; // Can be string or complex object
   type: string;
   created_at?: string;
 }
@@ -119,7 +119,7 @@ export const chatService = {
     parentId: string | null, // Can be null for the first query in a chat
     chatId: string,
     request: string,
-    responseContent: string | null, // Can be null initially for user queries
+    responseContent: any, // Can be null, string, or complex object
     type: string,
     mode: string
   ): Promise<CreateQueryResponse> {
@@ -127,7 +127,7 @@ export const chatService = {
       parent_id: parentId || "", // Convert null to empty string for backend
       chat_id: chatId || "",
       request: request || "",
-      response: responseContent || "", // Convert null to empty string for backend
+      response: responseContent ?? "", // Convert null/undefined to empty string for backend
       type: type || "auto",
       mode: mode || "auto",
     });
@@ -144,10 +144,9 @@ export const chatService = {
     return response.data;
   },
 
-  async updateQueryResponse(queryId: number | string, responseText: string): Promise<any> {
-    const id = typeof queryId === "string" ? parseInt(queryId) : queryId;
-    const response = await apiClient.put(`${routes.QUERY_GET}/${id}`, {
-      response_text: responseText,
+  async updateQueryResponse(queryId: string, responseContent: any): Promise<any> {
+    const response = await apiClient.put(`${routes.QUERY_GET}/${queryId}`, {
+      response: responseContent,
     });
     return response.data;
   },

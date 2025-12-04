@@ -450,7 +450,7 @@ export function ChatInput({
 
                 {/* Uploading overlay */}
                 {isUploadingImage && (
-                  <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
+                  <div className="absolute inset-0 bg-white rounded-lg flex items-center justify-center">
                     <div className="flex flex-col items-center gap-1">
                       {/* simple spinner using tailwind animate-spin + svg */}
                       <svg
@@ -474,7 +474,6 @@ export function ChatInput({
                           strokeLinecap="round"
                         ></path>
                       </svg>
-                      <span className="text-xs text-cyan-100">Uploading...</span>
                     </div>
                   </div>
                 )}
