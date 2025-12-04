@@ -187,6 +187,12 @@ export default function Home() {
       // Fetch queries for this chat to build messages
       const queries = await chatService.getChatQueries(chatId);
       
+      // Ensure queries is an array
+      if (!Array.isArray(queries)) {
+        console.error("Expected array but got:", queries);
+        throw new Error("Invalid response format: queries is not an array");
+      }
+      
       // Build messages from queries
       // Each query represents a user question (request) and AI response (response)
       const loadedMessages: Message[] = [];

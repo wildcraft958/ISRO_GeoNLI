@@ -110,7 +110,7 @@ export const chatService = {
   },
 
   async deleteChat(chatId: string): Promise<any> {
-    const response = await apiClient.delete(`/chat/${chatId}`);
+    const response = await apiClient.delete(`/chat/delete/${chatId}`);
     return response.data;
   },
 

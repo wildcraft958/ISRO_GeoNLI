@@ -21,24 +21,6 @@ async def create_chat_endpoint(
     return chat 
 
 
-@router.get("/create/{user_id}", response_model=Dict[str, List[QueryPublic]])
-async def get_queries_by_user_endpoint(
-    user_id: str,
-    db: AsyncIOMotorDatabase = Depends(get_db_dep),
-):
-    """
-    Get all queries for all chats belonging to a user, grouped by chat_id.
-    
-    Args:
-        user_id: The ID of the user
-    
-    Returns:
-        Dictionary mapping chat_id to list of queries for that chat
-    """
-    queries_by_chat = await query_service.get_queries_by_user(db, user_id)
-    return queries_by_chat
-
-
 @router.get("/chat/{chat_id}", response_model=List[QueryPublic])
 async def get_queries_by_chat_endpoint(
     chat_id: str,
@@ -55,5 +37,23 @@ async def get_queries_by_chat_endpoint(
     """
     queries = await query_service.get_queries_by_chat_id(db, chat_id)
     return queries
+
+
+@router.get("/user/{user_id}", response_model=Dict[str, List[QueryPublic]])
+async def get_queries_by_user_endpoint(
+    user_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_db_dep),
+):
+    """
+    Get all queries for all chats belonging to a user, grouped by chat_id.
+    
+    Args:
+        user_id: The ID of the user
+    
+    Returns:
+        Dictionary mapping chat_id to list of queries for that chat
+    """
+    queries_by_chat = await query_service.get_queries_by_user(db, user_id)
+    return queries_by_chat
 
 

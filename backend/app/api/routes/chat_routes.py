@@ -28,7 +28,7 @@ async def get_user_chats(
     chats = await chat_service.get_chats_by_user(db, user_id)
     return chats
 
-
+# for deletioin of chat
 @router.delete("/delete/{chat_id}", status_code=status.HTTP_200_OK)
 async def delete_chat_endpoint(
     chat_id: str,
