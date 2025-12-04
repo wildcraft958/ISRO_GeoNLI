@@ -57,11 +57,14 @@ export default function Home() {
     userId?: string, // Added userId param from ChatInput
     messageCategory?: "chat" | "query" // Added messageCategory param from ChatInput
   ) => {
+    const isNewChat = !currentChatId; // Check if this is a new chat (parent_id will be null)
+    
     const userMessage: Message = {
       id: Date.now().toString(),
       type: "user",
       content: data.text,
-      image_url: data.image_url,
+      // Only show image for the first query (when creating a new chat, parent_id will be null)
+      image_url: isNewChat ? data.image_url : undefined,
     };
 
     setMessages((prev) => [...prev, userMessage]);
@@ -197,14 +200,17 @@ export default function Home() {
       // Each query represents a user question (request) and AI response (response)
       const loadedMessages: Message[] = [];
       
-      queries.forEach((query: any, index: number) => {
+      queries.forEach((query: any) => {
+        // Check if this is the first query (parent_id is null or empty)
+        const isFirstQuery = !query.parent_id || query.parent_id === "" || query.parent_id === null;
+        
         // Add user message (request)
         if (query.request) {
           loadedMessages.push({
             id: `${query.id}_user`,
             type: "user",
             content: query.request,
-            image_url: index === 0 && selectedChat?.image_url ? selectedChat.image_url : undefined, // Only first message gets the image
+            image_url: isFirstQuery && selectedChat?.image_url ? selectedChat.image_url : undefined, // Only first query (parent_id = null) gets the image
           });
         }
         

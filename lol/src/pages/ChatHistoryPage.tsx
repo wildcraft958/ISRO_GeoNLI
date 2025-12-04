@@ -176,22 +176,35 @@ export function ChatHistoryPage({ onSelectChat }: ChatHistoryPageProps) {
                 onClick={() => onSelectChat(chat.id)}
               >
                 <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-white font-medium truncate">
-                        {chat.image_url ? "📸 Image Chat" : "💬 Text Chat"}
-                      </h3>
-                    </div>
-                    <p className="text-gray-400 text-sm mb-3 line-clamp-2">{chat.preview}</p>
-                    <div className="flex items-center gap-4 text-xs text-gray-500">
-                      <span className="flex items-center gap-1.5">
-                        <Calendar className="w-3.5 h-3.5" />
-                        {formatDate(chat.created_at)}
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <MessageSquare className="w-3.5 h-3.5" />
-                        {chat.messageCount} messages
-                      </span>
+                  <div className="flex-1 min-w-0 flex gap-4">
+                    {/* Chat Image Thumbnail */}
+                    {chat.image_url && (
+                      <div className="shrink-0">
+                        <img
+                          src={chat.image_url}
+                          alt="Chat image"
+                          className="w-20 h-20 object-cover rounded-lg border border-cyan-500/30 shadow-lg"
+                        />
+                      </div>
+                    )}
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h3 className="text-white font-medium truncate">
+                          {chat.image_url ? "📸 Image Chat" : "💬 Text Chat"}
+                        </h3>
+                      </div>
+                      <p className="text-gray-400 text-sm mb-3 line-clamp-2">{chat.preview}</p>
+                      <div className="flex items-center gap-4 text-xs text-gray-500">
+                        <span className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5" />
+                          {formatDate(chat.created_at)}
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          {chat.messageCount} messages
+                        </span>
+                      </div>
                     </div>
                   </div>
 

@@ -600,14 +600,6 @@ export function ChatInput({
                 {isListening ? <MicOff size={18} /> : <Mic size={18} />}
               </button>
 
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className={`p-2 transition-colors rounded-lg hover:bg-cyan-900/20 ${selectedImage ? "text-cyan-400" : "text-cyan-600 hover:text-cyan-300"}`}
-                title="Upload Image"
-                disabled={isUploadingImage} // prevent opening new selection while uploading
-              >
-                <ImageIcon size={18} />
-              </button>
 
               {/* New Chat Button */}
               {/*{onNewChat && (

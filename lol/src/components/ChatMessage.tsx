@@ -1,11 +1,12 @@
+import { Satellite, User } from "lucide-react";
+
 interface Message {
   id: string;
   type: "user" | "ai";
   content: string;
-  image?: string;
+  image_url?: string;
   aiImage?: string;
 }
-import { Satellite, User } from "lucide-react";
 
 interface ChatMessageProps {
   message: Message;
@@ -29,11 +30,11 @@ export function ChatMessage({ message }: ChatMessageProps) {
 
       {/* Message Content */}
       <div className={`flex-1 max-w-3xl ${isAI ? "" : "flex flex-col items-end"}`}>
-        {/* Image if present (user uploaded) */}
-        {message.image && (
+        {/* Image if present (user uploaded - shown for first query with parent_id = null) */}
+        {message.image_url && (
           <div className="mb-3">
             <img
-              src={message.image}
+              src={message.image_url}
               alt="Uploaded satellite"
               className="rounded-xl max-w-sm w-full border border-white/10 shadow-lg"
             />
