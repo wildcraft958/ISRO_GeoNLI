@@ -24,24 +24,30 @@ export interface ImageUploadResponse {
 }
 
 export interface CreateChatResponse {
-  status: string;
-  chat_id: string;
-  message: string;
+  id: string;
+  image_url: string;
+  user_id: string;
+  created_at: string;
 }
 
 export interface CreateQueryResponse {
-  status: string;
-  id: number;
+  id: string;
+  parent_id: string;
   chat_id: string;
-  message: string;
+  request: string;
+  response: string;
+  type: string;
+  created_at?: string;
 }
 
 export interface QueryData {
-  id: number;
+  id: string;
   chat_id: string;
-  question_text: string;
-  response_text: string | null;
-  query_type: string;
+  parent_id: string;
+  request: string;
+  response: string;
+  type: string;
+  created_at?: string;
 }
 
 export const chatService = {
@@ -138,8 +144,9 @@ export const chatService = {
     return response.data;
   },
 
-  async updateQueryResponse(queryId: number, responseText: string): Promise<any> {
-    const response = await apiClient.put(`${routes.QUERY_GET}/${queryId}`, {
+  async updateQueryResponse(queryId: number | string, responseText: string): Promise<any> {
+    const id = typeof queryId === "string" ? parseInt(queryId) : queryId;
+    const response = await apiClient.put(`${routes.QUERY_GET}/${id}`, {
       response_text: responseText,
     });
     return response.data;

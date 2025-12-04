@@ -28,7 +28,14 @@ export function ChatHistoryPage({ onSelectChat }: ChatHistoryPageProps) {
     if (!user?.id) return;
     try {
       setLoading(true);
+      setError(null);
       const chatList = await chatService.getChats(user.id);
+      // Handle empty chat list
+      if (!chatList || chatList.length === 0) {
+        setChats([]);
+        setLoading(false);
+        return;
+      }
 
       // Fetch query count for each chat
       const chatsWithMessages = await Promise.all(
@@ -36,10 +43,12 @@ export function ChatHistoryPage({ onSelectChat }: ChatHistoryPageProps) {
           try {
             const queries = await chatService.getChatQueries(chat.id);
             const preview =
-              queries.length > 0 ? queries[0].question_text.substring(0, 80) : "No queries yet";
+              queries.length > 0 && queries[0].request
+                ? queries[0].request.substring(0, 80)
+                : "No queries yet";
 
             return {
-              id: chat.id,
+              id: chat.id || chat.chat_id,
               image_url: chat.image_url,
               created_at: chat.created_at,
               user_id: chat.user_id,
@@ -49,7 +58,7 @@ export function ChatHistoryPage({ onSelectChat }: ChatHistoryPageProps) {
           } catch (err) {
             console.error(`Failed to fetch queries for chat ${chat.id}:`, err);
             return {
-              id: chat.id,
+              id: chat.id || chat.chat_id,
               image_url: chat.image_url,
               created_at: chat.created_at,
               user_id: chat.user_id,
@@ -62,9 +71,9 @@ export function ChatHistoryPage({ onSelectChat }: ChatHistoryPageProps) {
 
       setChats(chatsWithMessages);
       setError(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to fetch chats:", err);
-      setError("Failed to load chat history");
+      setError(err?.response?.data?.detail || err?.message || "Failed to load chat history");
     } finally {
       setLoading(false);
     }

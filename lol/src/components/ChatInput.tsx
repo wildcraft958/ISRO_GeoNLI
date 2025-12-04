@@ -13,7 +13,7 @@ import {
   Upload,
 } from "lucide-react";
 import type { Mode } from "../pages/Home";
-import { BACKEND_URL, ROUTES } from "@/lib/constant";
+import { BACKEND_URL ,routes} from "@/lib/api";
 
 // TypeScript definition for the Web Speech API
 declare global {
@@ -228,7 +228,7 @@ export function ChatInput({
 
     try {
       setIsUploadingImage(true); // <-- show loader & disable send
-      const url = new URL(`${BACKEND_URL}${ROUTES.IMAGE_UPLOAD}`);
+      const url = new URL(`${BACKEND_URL}${routes.IMAGE_UPLOAD}`);
       if (userId) {
         url.searchParams.append("user_id", userId);
       }

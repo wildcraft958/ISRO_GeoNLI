@@ -82,32 +82,34 @@ export default function Home() {
           user.id,
           data.image_url || undefined // Pass image_url if present, else undefined
         );
-        sessionId = createChatResponse.chat_id;
-        setCurrentChatId(sessionId);
+        const chatId = createChatResponse.id; // Backend returns 'id' not 'chat_id'
+        sessionId = chatId; // Use chat_id as session_id for orchestrator
+        setCurrentChatId(chatId);
 
         // Create the initial query for the new chat
         const createQueryResponse = await chatService.createQuery(
           null, // parent_id is null for the first query in a chat
-          sessionId,
+          chatId, // Pass the chat_id to the query
           data.text,
           null, // response is null initially for the user's query
           messageCategory === "chat" ? "image_query" : "text_query", // Type based on presence of image
           mode // Mode of the current chat
         );
         console.log("createqueryeresponse", createQueryResponse);
-        queryId = createQueryResponse.id.toString(); // Assuming query_id is number, convert to string
+        queryId = createQueryResponse.id; // Backend returns id as string
         setLastQueryId(queryId);
       } else {
         // If it's a subsequent text-only query in an existing session
+        // sessionId is the chat_id in this context
         const createQueryResponse = await chatService.createQuery(
           lastQueryId, // parent_id is the previous query ID
-          sessionId,
+          sessionId, // Pass the chat_id (sessionId) to the query
           data.text,
           null,
           "auto",
           mode
         );
-        queryId = createQueryResponse.query_id.toString();
+        queryId = createQueryResponse.id; // Backend returns id as string
         setLastQueryId(queryId);
       }
 
@@ -125,10 +127,11 @@ export default function Home() {
       );
 
       // Create AI message from response
+      const aiResponseContent = typeof response.content === "string" ? response.content : "No response from model";
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: "ai",
-        content: typeof response.content === "string" ? response.content : "No response from model",
+        content: aiResponseContent,
         aiImage:
           mode === "grounding" &&
           typeof response.content !== "string" &&
@@ -141,7 +144,8 @@ export default function Home() {
       // Save AI message to state
       setMessages((prev) => [...prev, aiMessage]);
 
-      // Backend persists messages via the orchestrator endpoint (comment remains relevant as orchestrator handles internal message persistence)
+      // TODO: Update the query with the AI response when backend endpoint is available
+      // For now, queries are created with null response and updated later if needed
     } catch (error) {
       console.error("Failed to send message:", error);
       const errorMessage: Message = {
@@ -163,24 +167,61 @@ export default function Home() {
     setLastQueryId(null); // Reset last query ID
   };
 
-  const handleSelectChat = async (sessionId: string) => {
+  const handleSelectChat = async (chatId: string) => {
     try {
       setIsProcessing(true);
 
-      // Fetch messages for this session
-      const historyResponse = await apiClient.get(`${routes.SESSION_HISTORY}/${sessionId}/history`);
-      const messages = historyResponse.data?.messages || [];
+      // Fetch the chat details to get image_url
+      const chats = await chatService.getChats(user?.id || "");
+      const selectedChat = chats.find((chat: any) => chat.id === chatId);
+      
+      // Restore image state from chat
+      if (selectedChat?.image_url) {
+        setSelectedImage(selectedChat.image_url);
+        setImageUploaded(true);
+      } else {
+        setSelectedImage(null);
+        setImageUploaded(false);
+      }
 
-      // Convert messages to Message format
-      const loadedMessages: Message[] = messages.map((msg: any, index: number) => ({
-        id: `${msg.id || index}`,
-        type: msg.type === "user" ? "user" : "ai",
-        content: msg.content,
-        image_url: msg.image_url,
-      }));
+      // Fetch queries for this chat to build messages
+      const queries = await chatService.getChatQueries(chatId);
+      
+      // Build messages from queries
+      // Each query represents a user question (request) and AI response (response)
+      const loadedMessages: Message[] = [];
+      
+      queries.forEach((query: any, index: number) => {
+        // Add user message (request)
+        if (query.request) {
+          loadedMessages.push({
+            id: `${query.id}_user`,
+            type: "user",
+            content: query.request,
+            image_url: index === 0 && selectedChat?.image_url ? selectedChat.image_url : undefined, // Only first message gets the image
+          });
+        }
+        
+        // Add AI message (response) if it exists
+        if (query.response) {
+          loadedMessages.push({
+            id: `${query.id}_ai`,
+            type: "ai",
+            content: query.response,
+          });
+        }
+      });
+
+      // Set the last query ID for continuing the conversation
+      if (queries.length > 0) {
+        const lastQuery = queries[queries.length - 1];
+        setLastQueryId(lastQuery.id);
+      } else {
+        setLastQueryId(null);
+      }
 
       // Set the loaded chat state
-      setCurrentChatId(sessionId);
+      setCurrentChatId(chatId);
       setMessages(loadedMessages);
       setCurrentPage("chat");
     } catch (error) {
