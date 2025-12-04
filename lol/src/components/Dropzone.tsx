@@ -12,18 +12,7 @@ interface DropType {
 
 export default function DropZone({  setSelectedImage, setImgFile,setimageUploaded }: DropType) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setimageUploaded(true)
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      readFileAsDataUrl(file).then((data) => {
-        setSelectedImage(data);
-        setImgFile(file);
-      });
-    }
-    e.target.value = ""; // allow re-uploading same file
-  };
+  const [isDragging, setIsDragging] = React.useState(false);
 
   const readFileAsDataUrl = (file: File) => {
     return new Promise<string>((resolve, reject) => {
@@ -34,8 +23,51 @@ export default function DropZone({  setSelectedImage, setImgFile,setimageUploade
     });
   };
 
+  const handleFile = (file: File | null) => {
+    if (!file) return;
+    setimageUploaded(true);
+    readFileAsDataUrl(file).then((data) => {
+      setSelectedImage(data);
+      setImgFile(file);
+    });
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      handleFile(e.target.files[0]);
+    }
+    e.target.value = ""; // allow re-uploading same file
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDragging) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    handleFile(file ?? null);
+  };
+
   return (
-    <div className="absolute inset-0 z-50  flex items-center justify-center bg-[#000814]  backdrop-blur-sm pointer-events-auto">
+    <div
+      className={`absolute inset-0 z-50 flex items-center justify-center bg-[#000814] backdrop-blur-sm pointer-events-auto transition
+        ${isDragging ? "ring-2 ring-cyan-400/60 bg-[#001429]" : ""}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <div className="text-center flex flex-col items-center gap-3">
 
         {/* Upload Button */}
