@@ -22,11 +22,11 @@ Each service is deployed as a separate Modal app with its own base URL.
 
 - **Captioning service (`captioning.py`)**  
   Example:  
-  `CAPTION_BASE_URL=https://<org>--qwen3-vlm-captioning.modal.run`
+  `CAPTION_BASE_URL=https://maximuspookus--qwen3-vlm-captioning.modal.run`
 
 - **VQA service (`vqa.py`)**  
   Example:  
-  `VQA_BASE_URL=https://<org>--qwen3-vlm-vqa.modal.run`
+  `VQA_BASE_URL=https://maximuspookus--qwen3-vlm-vqa.modal.run`
 
 You’ll get the exact URLs from the Modal dashboard after deployment.
 
@@ -219,7 +219,7 @@ POST {SERVICE_BASE_URL}/v1/chat/completions/async
 import requests
 import time
 
-CAPTION_BASE_URL = "https://<org>--qwen3-vlm-captioning.modal.run"
+CAPTION_BASE_URL = "https://maximuspookus--qwen3-vlm-captioning.modal.run"
 
 payload = {
     "model": "qwen-caption-special",
@@ -321,8 +321,8 @@ Add these environment variables to your backend configuration:
 
 ```bash
 # .env or environment variables
-VQA_BASE_URL=https://<org>--qwen3-vlm-vqa.modal.run
-CAPTION_BASE_URL=https://<org>--qwen3-vlm-captioning.modal.run
+VQA_BASE_URL=https://maximuspookus--qwen3-vlm-vqa.modal.run
+CAPTION_BASE_URL=https://maximuspookus--qwen3-vlm-captioning.modal.run
 
 # Optional: Configure timeouts
 VQA_TIMEOUT=120
@@ -345,11 +345,11 @@ class ModalServiceClient:
     def __init__(self):
         self.vqa_base_url = os.getenv(
             "VQA_BASE_URL", 
-            "https://<org>--qwen3-vlm-vqa.modal.run"
+            "https://maximuspookus--qwen3-vlm-vqa.modal.run"
         )
         self.caption_base_url = os.getenv(
             "CAPTION_BASE_URL",
-            "https://<org>--qwen3-vlm-captioning.modal.run"
+            "https://maximuspookus--qwen3-vlm-captioning.modal.run"
         )
         self.timeout = int(os.getenv("VQA_TIMEOUT", "120"))
     
@@ -605,7 +605,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 
 router = APIRouter()
-VQA_BASE_URL = os.getenv("VQA_BASE_URL", "https://<org>--qwen3-vlm-vqa.modal.run")
+VQA_BASE_URL = os.getenv("VQA_BASE_URL", "https://maximuspookus--qwen3-vlm-vqa.modal.run")
 
 @router.post("/api/vqa")
 async def vqa_endpoint(image_url: str, question: str):
