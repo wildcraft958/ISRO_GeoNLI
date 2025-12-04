@@ -22,6 +22,9 @@ export interface Message {
   content: any;
   image_url?: string;
   aiImage?: string;
+  boxes?: Array<{ x1: number; y1: number; x2: number; y2: number; label?: string; confidence?: number }>;
+  imageWidth?: number;
+  imageHeight?: number;
 }
 
 export type Mode = "captioning" | "vqa" | "grounding"|"auto";
@@ -129,17 +132,45 @@ export default function Home() {
 
       // Create AI message from response
       const aiResponseContent = response.content ?? "No response from model";
+      
+      // Check if response is a string or JSON with boxes
+      let displayContent: string;
+      if (typeof aiResponseContent === "string") {
+        displayContent = aiResponseContent;
+      } else if (aiResponseContent && typeof aiResponseContent === "object" && "boxes" in aiResponseContent) {
+        // If it's JSON with boxes, console.log it instead of displaying
+        console.log("Response with boxes:", aiResponseContent);
+        displayContent = ""; // Don't display anything for boxes response
+      } else {
+        // Fallback for other object types
+        displayContent = JSON.stringify(aiResponseContent);
+      }
+      
+      // Extract boxes and image dimensions if present
+      let boxes: Array<{ x1: number; y1: number; x2: number; y2: number; label?: string; confidence?: number }> | undefined;
+      let imageWidth: number | undefined;
+      let imageHeight: number | undefined;
+      let aiImageUrl: string | undefined;
+      
+      if (mode === "grounding" &&
+          typeof response.content !== "string" &&
+          response.content?.boxes &&
+          response.content.boxes.length > 0) {
+        boxes = response.content.boxes;
+        imageWidth = response.content.image_width;
+        imageHeight = response.content.image_height;
+        // Use the original image URL if available, otherwise use the grounding annotated image
+        aiImageUrl = response.original_image_url || groundingAnnotated;
+      }
+      
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: "ai",
-        content: typeof aiResponseContent === "string" ? aiResponseContent : aiResponseContent,
-        aiImage:
-          mode === "grounding" &&
-          typeof response.content !== "string" &&
-          response.content?.boxes &&
-          response.content.boxes.length > 0
-            ? groundingAnnotated
-            : undefined,
+        content: displayContent,
+        aiImage: aiImageUrl,
+        boxes: boxes,
+        imageWidth: imageWidth,
+        imageHeight: imageHeight,
       };
 
       // Save AI message to state
@@ -324,17 +355,45 @@ export default function Home() {
 
       // Create AI message from response
       const aiResponseContent = response.content ?? "No response from model";
+      
+      // Check if response is a string or JSON with boxes
+      let displayContent: string;
+      if (typeof aiResponseContent === "string") {
+        displayContent = aiResponseContent;
+      } else if (aiResponseContent && typeof aiResponseContent === "object" && "boxes" in aiResponseContent) {
+        // If it's JSON with boxes, console.log it instead of displaying
+        console.log("Response with boxes:", aiResponseContent);
+        displayContent = ""; // Don't display anything for boxes response
+      } else {
+        // Fallback for other object types
+        displayContent = JSON.stringify(aiResponseContent);
+      }
+      
+      // Extract boxes and image dimensions if present
+      let boxes: Array<{ x1: number; y1: number; x2: number; y2: number; label?: string; confidence?: number }> | undefined;
+      let imageWidth: number | undefined;
+      let imageHeight: number | undefined;
+      let aiImageUrl: string | undefined;
+      
+      if (sampleMode === "grounding" &&
+          typeof response.content !== "string" &&
+          response.content?.boxes &&
+          response.content.boxes.length > 0) {
+        boxes = response.content.boxes;
+        imageWidth = response.content.image_width;
+        imageHeight = response.content.image_height;
+        // Use the original image URL if available, otherwise use the grounding annotated image
+        aiImageUrl = response.original_image_url || sample.imageUrl || groundingAnnotated;
+      }
+      
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: "ai",
-        content: typeof aiResponseContent === "string" ? aiResponseContent : aiResponseContent,
-        aiImage:
-          sampleMode === "grounding" &&
-          typeof response.content !== "string" &&
-          response.content?.boxes &&
-          response.content.boxes.length > 0
-            ? groundingAnnotated
-            : undefined,
+        content: displayContent,
+        aiImage: aiImageUrl,
+        boxes: boxes,
+        imageWidth: imageWidth,
+        imageHeight: imageHeight,
       };
 
       // Save AI message to state
