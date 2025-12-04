@@ -141,7 +141,7 @@ def serve():
 
     import fastapi
     import httpx
-    from fastapi import HTTPException
+    from fastapi import HTTPException, Path
     from fastapi.responses import JSONResponse
     from PIL import Image
     from prometheus_fastapi_instrumentator import Instrumentator
@@ -526,7 +526,7 @@ def serve():
         summary="Poll Job Status",
         description="Poll for async job result. Returns 202 if pending, 200 if complete."
     )
-    async def get_job_status(call_id: str):
+    async def get_job_status(call_id: str = Path(..., description="Job call ID for polling")):
         """Poll for job result. Returns 202 if pending, 200 if complete, 404 if expired."""
         try:
             function_call = modal.FunctionCall.from_id(call_id)

@@ -32,7 +32,7 @@ _llm_cache = None
 
 @app.function(
     image=image,
-    gpu="A100-80GB",  # 80GB A100 - sufficient for 8B models with FP16
+    gpu="A100",  # 80GB A100 - sufficient for 8B models with FP16
     volumes={"/data/models": vol},
     timeout=600,  # 10 minutes per job
     scaledown_window=300,  # Keep container warm for 5 min
@@ -127,7 +127,7 @@ def process_inference_job(
 
 @app.function(
     image=image,
-    gpu="A100-80GB",  # 80GB A100 - sufficient for 8B models with FP16
+    gpu="A100",  # 80GB A100 - sufficient for 8B models with FP16
     volumes={"/data/models": vol},
     scaledown_window=300,
     # min_containers removed to stay within 2 A100 limit (containers spin up on-demand)
@@ -141,7 +141,7 @@ def serve():
 
     import fastapi
     import httpx
-    from fastapi import HTTPException
+    from fastapi import HTTPException, Path
     from fastapi.responses import JSONResponse
     from PIL import Image
     from prometheus_fastapi_instrumentator import Instrumentator
@@ -526,7 +526,7 @@ def serve():
         summary="Poll Job Status",
         description="Poll for async job result. Returns 202 if pending, 200 if complete."
     )
-    async def get_job_status(call_id: str):
+    async def get_job_status(call_id: str = Path(..., description="Job call ID for polling")):
         """Poll for job result. Returns 202 if pending, 200 if complete, 404 if expired."""
         try:
             function_call = modal.FunctionCall.from_id(call_id)
