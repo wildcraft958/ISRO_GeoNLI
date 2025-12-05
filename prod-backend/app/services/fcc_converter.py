@@ -2,9 +2,9 @@ import base64
 import httpx
 from app.core.config import settings
 
-async def convert_ir_to_rgb(image_bytes: bytes) -> bytes:
+async def convert_fcc_to_rgb(image_bytes: bytes) -> bytes:
     """
-    Converts an IR image to RGB by calling the external Modal service (IR_CONVERT_URL).
+    Converts an FCC image to RGB by calling the external Modal service (FCC_CONVERT_URL).
     Accepts bytes, sends base64 to API, and returns decoded RGB bytes.
     """
     # 1. Encode image bytes to Base64 string for JSON payload
@@ -17,7 +17,7 @@ async def convert_ir_to_rgb(image_bytes: bytes) -> bytes:
     # 2. Call the external IR conversion service
     async with httpx.AsyncClient(timeout=60.0) as client:
         # We assume settings.IR_CONVERT_URL is defined in your config
-        response = await client.post(settings.IR_CONVERT_URL, json=payload)
+        response = await client.post(settings.FCC_CONVERT_URL, json=payload)
         response.raise_for_status()
         
         data = response.json()
@@ -27,7 +27,7 @@ async def convert_ir_to_rgb(image_bytes: bytes) -> bytes:
         output_b64 = data.get("image_base64")
         
         if not output_b64:
-            raise ValueError("IR Conversion service returned empty data")
+            raise ValueError("FCC Conversion service returned empty data")
             
         # 4. Decode back to bytes
         return base64.b64decode(output_b64)

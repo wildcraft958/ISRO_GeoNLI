@@ -34,8 +34,8 @@ async def predict_modality(image_bytes: bytes) -> str:
                 logger.error(f"Classifier reported failure: {data.get('error')}")
                 raise ValueError("Classification failed")
 
-            # Extract modality (e.g., 'rgb') and normalize to uppercase ('RGB')
-            modality = data.get("modality", "RGB").upper()
+            # Extract modality (e.g., 'rgb') and normalize to uppercase ('FCC')
+            modality = data.get("modality", "FCC").upper()
             return modality
 
         except httpx.RequestError as e:

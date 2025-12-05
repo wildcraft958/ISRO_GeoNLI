@@ -32,7 +32,6 @@ class UserCreate(BaseModel):
 
 class UserResponse(BaseModel):
     id: str = Field(..., description="Internal UUID")
-    # RENAMED to user_id
     user_id: str = Field(..., description="Clerk User ID")
     email: EmailStr
     created_at: datetime 

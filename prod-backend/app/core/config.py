@@ -28,8 +28,8 @@ class Settings(BaseSettings):
     GENERIC_LLM_URL: str = ""
 
     SAR_URL: str = ""
-    FCC_URL: str = ""
-    IR_CONVERT_URL: str = ""
+    IR_URL: str = ""
+    FCC_CONVERT_URL: str = ""
 
     class Config:
         case_sensitive = True

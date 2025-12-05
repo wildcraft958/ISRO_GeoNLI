@@ -7,7 +7,7 @@ from app.core.database import get_db
 from app.db.models import ChatSession
 from app.services.s3_service import s3_service
 from app.services.classifier import predict_modality
-from app.services.ir_converter import convert_ir_to_rgb
+from app.services.fcc_converter import convert_fcc_to_rgb
 
 router = APIRouter()
 
@@ -22,10 +22,10 @@ async def upload_image(
     1. Read File 
     2. ResNet Classify (SAR, IR, RGB)
     3. Logic Branch:
-       - IR: Convert to RGB -> Upload Converted -> DB Type: 'RGB'
+       - IR: Upload Original -> DB Type: 'IR'
        - SAR: Upload Original -> DB Type: 'SAR'
        - RGB: Upload Original -> DB Type: 'RGB'
-       - Other: Upload Original -> DB Type: 'FCC'
+       - Other: Upload Original -> FCC -> Convert to RGB -> DB Type: 'RGB'
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename missing")
@@ -43,10 +43,10 @@ async def upload_image(
         final_image_bytes = original_bytes
         final_modality = raw_modality
         
-        if raw_modality == "IR":
-            # CASE 1: IR -> Convert to RGB
+        if raw_modality == "FCC":
+            # CASE 1: FCC -> Convert to RGB
             # We "continue as currently deployed pipeline is" (treat as RGB)
-            final_image_bytes = convert_ir_to_rgb(original_bytes)
+            final_image_bytes = convert_fcc_to_rgb(original_bytes)
             final_modality = "RGB" 
             
         elif raw_modality == "SAR":
@@ -57,9 +57,9 @@ async def upload_image(
             # CASE 3: RGB -> Keep as RGB
             final_modality = "RGB"
             
-        else:
-            # CASE 4: Fallback -> FCC
-            final_modality = "FCC"
+        elif raw_modality == "IR":
+            # CASE 4: IR -> Keep as IR
+            final_modality = "IR"
 
         # D. Upload the (potentially converted) image to S3
         file_obj = BytesIO(final_image_bytes)
@@ -77,7 +77,7 @@ async def upload_image(
             chat_id=chat_id,
             user_id=user_id,
             image_url=image_url,
-            image_type=final_modality, # Will be RGB (converted), SAR, or FCC
+            image_type=final_modality, # Will be RGB (converted), SAR, or IR
             summary_context=""
         )
         

@@ -18,9 +18,9 @@ class ChatState(TypedDict):
     query_text: str
     requested_mode: str 
     image_url: str
-    image_type: str      # RGB, SAR, FCC
+    image_type: str      # RGB, SAR, IR
     summary_context: str 
-    final_mode: str      # VQA, CAPTIONING, GROUNDING, SAR_DIRECT, FCC_DIRECT
+    final_mode: str      # VQA, CAPTIONING, GROUNDING, SAR_DIRECT, IR_DIRECT
     vqa_subtype: str    
     response_text: str
     response_metadata: Optional[Any]
@@ -91,11 +91,11 @@ async def determine_mode_node(state: ChatState):
     if img_type == "SAR":
         return {"final_mode": "SAR_DIRECT"}
     
-    if img_type == "FCC":
-        return {"final_mode": "FCC_DIRECT"}
+    if img_type == "IR":
+        return {"final_mode": "IR_DIRECT"}
     
     # --- RGB LOGIC (Existing Pipeline) ---
-    # If image_type is RGB (includes converted IR), we use the router
+    # If image_type is RGB (includes converted FCC), we use the router
     req_mode = state["requested_mode"]
     if req_mode != "AUTO":
         return {"final_mode": req_mode}
@@ -126,8 +126,8 @@ async def execute_model_node(state: ChatState):
     # URL Selection
     if mode == "SAR_DIRECT":
         target_url = settings.SAR_URL
-    elif mode == "FCC_DIRECT":
-        target_url = settings.FCC_URL
+    elif mode == "IR_DIRECT":
+        target_url = settings.IR_URL
     elif mode == "GROUNDING":
         target_url = settings.GROUNDING_URL
     elif mode == "CAPTIONING":
@@ -230,7 +230,7 @@ workflow.set_entry_point("determine_mode")
 
 def route_logic(state):
     # Only route to VQA Classifier if mode is VQA
-    # SAR, FCC, CAPTIONING, GROUNDING all go straight to execute
+    # CAPTIONING, GROUNDING all go straight to execute
     if state["final_mode"] == "VQA":
         return "classify_vqa"
     return "execute_model"
