@@ -1,0 +1,26 @@
+# Web Framework & Server
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9   # Required for file uploads (Step 0)
+
+# Database & ORM
+sqlalchemy>=2.0.29
+psycopg2-binary>=2.9.9    # PostgreSQL adapter
+alembic>=1.13.1           # Database migrations
+
+# AWS Services
+boto3>=1.34.84            # S3 interaction
+
+# AI Orchestration & Logic
+langgraph>=0.0.30         # State machine logic
+langchain-core>=0.1.45    # Core primitives for LangGraph
+
+# HTTP Clients (External API Calls)
+httpx>=0.27.0             # Async client (Used in Step 0 for ResNet)
+requests>=2.31.0          # Sync client (Used in Step 1 for Model Executors)
+
+# Configuration & Validation
+pydantic>=2.7.0
+pydantic-settings>=2.2.1  # For loading .env files
+python-dotenv>=1.0.1
+email-validator>=2.1.0
