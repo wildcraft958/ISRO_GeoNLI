@@ -1,13 +1,13 @@
-# app/api/v1/endpoints/upload.py
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from sqlalchemy.orm import Session
 import uuid
-from typing import Optional
+from io import BytesIO
 
 from app.core.database import get_db
 from app.db.models import ChatSession
 from app.services.s3_service import s3_service
 from app.services.classifier import predict_modality
+from app.services.ir_converter import convert_ir_to_rgb
 
 router = APIRouter()
 
@@ -19,31 +19,50 @@ async def upload_image(
 ):
     """
     Step 0 Flow:
-    1. Read File -> 2. S3 Upload -> 3. ResNet Classify -> 4. Save to DB
+    1. Read File 
+    2. ResNet Classify (SAR, IR, RGB)
+    3. Logic Branch:
+       - IR: Convert to RGB -> Upload Converted -> DB Type: 'RGB'
+       - SAR: Upload Original -> DB Type: 'SAR'
+       - RGB: Upload Original -> DB Type: 'RGB'
+       - Other: Upload Original -> DB Type: 'FCC'
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename missing")
 
-    # Generate unique ID
     chat_id = str(uuid.uuid4())
     
     try:
-        # A. Read file content once
-        # We need bytes for both S3 upload and Classification
-        file_content = await file.read()
+        # A. Read content
+        original_bytes = await file.read()
         
-        # B. Classification (Async call to ResNet)
-        # We do this first or in parallel. If this fails, we might not want to save the session.
-        # Passing raw bytes to our service helper
-        modality = await predict_modality(file_content)
+        # B. Classify
+        raw_modality = await predict_modality(original_bytes)
+        
+        # C. Process based on Modality
+        final_image_bytes = original_bytes
+        final_modality = raw_modality
+        
+        if raw_modality == "IR":
+            # CASE 1: IR -> Convert to RGB
+            # We "continue as currently deployed pipeline is" (treat as RGB)
+            final_image_bytes = convert_ir_to_rgb(original_bytes)
+            final_modality = "RGB" 
+            
+        elif raw_modality == "SAR":
+            # CASE 2: SAR -> Keep as SAR
+            final_modality = "SAR"
+            
+        elif raw_modality == "RGB":
+            # CASE 3: RGB -> Keep as RGB
+            final_modality = "RGB"
+            
+        else:
+            # CASE 4: Fallback -> FCC
+            final_modality = "FCC"
 
-        # C. Upload to S3
-        # Reset file cursor for boto3 if we were passing the file object, 
-        # but here we can pass the BytesIO or write bytes directly.
-        # Since our s3_service expects a file-like object, we wrap the bytes.
-        from io import BytesIO
-        file_obj = BytesIO(file_content)
-        
+        # D. Upload the (potentially converted) image to S3
+        file_obj = BytesIO(final_image_bytes)
         file_ext = file.filename.split(".")[-1]
         s3_key = f"{user_id}/{chat_id}.{file_ext}"
         
@@ -53,12 +72,12 @@ async def upload_image(
             content_type=file.content_type
         )
         
-        # D. Save to Database
+        # E. Save to DB
         new_session = ChatSession(
             chat_id=chat_id,
             user_id=user_id,
             image_url=image_url,
-            image_type=modality, # Populated from ResNet
+            image_type=final_modality, # Will be RGB (converted), SAR, or FCC
             summary_context=""
         )
         
@@ -69,10 +88,9 @@ async def upload_image(
         return {
             "chat_id": chat_id,
             "image_url": image_url,
-            "image_type": modality,
+            "image_type": final_modality,
             "success": True
         }
 
     except Exception as e:
-        # In production, specific error handling (400 vs 500) goes here
         raise HTTPException(status_code=500, detail=str(e))
