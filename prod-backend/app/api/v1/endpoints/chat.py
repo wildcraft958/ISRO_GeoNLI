@@ -77,7 +77,7 @@ async def chat_endpoint(req: ChatRequest, db: Session = Depends(get_db)):
     try:
         result = await chat_app.ainvoke(initial_state)
         return ChatResponse(
-            response_text=result["response_text"],
+            response_text=result["choices"][0].content,
             mode_used=result["final_mode"],
             metadata=result.get("response_metadata")
         )

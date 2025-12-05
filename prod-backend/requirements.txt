@@ -24,3 +24,5 @@ pydantic>=2.7.0
 pydantic-settings>=2.2.1  # For loading .env files
 python-dotenv>=1.0.1
 email-validator>=2.1.0
+
+prometheus-fastapi-instrumentator>=6.0.0

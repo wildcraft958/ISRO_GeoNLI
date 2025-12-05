@@ -1,0 +1,32 @@
+def get_ir_payload(image_url: str, query_text: str) -> dict:
+    """
+    Determines the system prompt based on text intent and returns the full payload.
+    This function is pure logic (no HTTP calls) and is used by the IRAdapter.
+    """
+    # 1. Determine Intent
+    # Heuristic: if the user asks for a description/caption, use the captioning prompt.
+    is_captioning = any(word in query_text.lower() for word in ["describe", "caption", "what is this image"])
+    
+    if is_captioning:
+        system_prompt = "You are an expert in Infrared (IR) satellite imagery. Provide a detailed caption describing the thermal signatures and objects visible in this image."
+    else:
+        system_prompt = "You are an expert in Infrared (IR) satellite imagery. Answer the user's specific question based on the thermal features in the image."
+
+    # 2. Construct Payload
+    return {
+        "model": "ir-special", 
+        "messages": [
+            {
+                "role": "system",
+                "content": system_prompt
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": query_text},
+                    {"type": "image_url", "image_url": {"url": image_url}}
+                ]
+            }
+        ],
+        "temperature": 0.7 if is_captioning else 0.1 
+    }
