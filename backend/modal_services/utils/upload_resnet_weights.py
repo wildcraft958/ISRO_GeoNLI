@@ -20,17 +20,19 @@ app = modal.App("upload-resnet-weights")
 
 
 @app.local_entrypoint()
-def main(weights_path: str = "../resnet_models/model_weights/best_resnet.pth"):
+def main(weights_path: str = None):
     """
     Upload ResNet weights to Modal Volume.
     
     Args:
         weights_path: Local path to the .pth file
-                     (default: ../resnet_models/model_weights/best_resnet.pth)
-                     
-    Note: When running from backend/modal_services/, the default path
-          points to backend/resnet_models/model_weights/best_resnet.pth
+                     (default: best_resnet.pth in the same directory as this script)
     """
+    # Default to weights file in the same directory as this script
+    if weights_path is None:
+        script_dir = Path(__file__).parent
+        weights_path = str(script_dir / "best_resnet.pth")
+    
     local_path = Path(weights_path)
     
     if not local_path.exists():

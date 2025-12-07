@@ -4,10 +4,10 @@ import io
 from PIL import Image
 
 # --- CONFIGURATION ---
-MERGED_MODEL_PATH = "/data/models/merged-qwen3vl-sar"
-MODEL_NAME = "qwen3vl-sar"
+MERGED_MODEL_PATH = "/data/models/merged-qwen3vl-ir"
+MODEL_NAME = "qwen3vl-ir"
 
-vol = modal.Volume.from_name("vlm-weights-merge-qwen3vl-sar")
+vol = modal.Volume.from_name("vlm-weights-merge-qwen3vl-ir")
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -24,7 +24,7 @@ image = (
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
 
-app = modal.App("qwen3-vl-sar")
+app = modal.App("qwen3-vl-ir")
 
 @app.function(
     image=image,
@@ -73,7 +73,7 @@ def serve():
             le=4096
         )
         temperature: float = Field(
-            default=0.2,
+            default=0.7,
             description="Sampling temperature (0.0 to 2.0)",
             ge=0.0,
             le=2.0
@@ -86,7 +86,7 @@ def serve():
                     "user_prompt": "What is in this image?",
                     "image": "https://example.com/image.jpg",
                     "max_tokens": 512,
-                    "temperature": 0.2
+                    "temperature": 0.7
                 },
                 "examples": [
                     {
@@ -94,14 +94,14 @@ def serve():
                         "user_prompt": "What is in this image?",
                         "image": "https://example.com/image.jpg",
                         "max_tokens": 512,
-                        "temperature": 0.2
+                        "temperature": 0.7
                     },
                     {
                         "system_prompt": "You are a helpful vision assistant.",
                         "user_prompt": "Describe this image.",
                         "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
                         "max_tokens": 1024,
-                        "temperature": 0.2
+                        "temperature": 0.7
                     }
                 ]
             }
@@ -116,7 +116,7 @@ def serve():
             json_schema_extra = {
                 "example": {
                     "response": "This image shows...",
-                    "model": "qwen3vl-sar",
+                    "model": "qwen3vl-ir",
                     "status": "success"
                 }
             }
@@ -153,7 +153,7 @@ def serve():
             le=4096
         )
         temperature: float = Field(
-            default=0.2,
+            default=0.7,
             description="Sampling temperature (0.0 to 2.0)",
             ge=0.0,
             le=2.0
@@ -177,7 +177,7 @@ def serve():
                             "user_prompt": "What is in this image?",
                             "image": "https://example.com/image.jpg",
                             "max_tokens": 512,
-                            "temperature": 0.2
+                            "temperature": 0.7
                         }
                     ]
                 }
@@ -300,7 +300,7 @@ def serve():
           - Data URL format (e.g., 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...')
           - Image URL (e.g., 'https://example.com/image.jpg' or 'http://example.com/image.png')
         - **max_tokens**: Maximum tokens to generate (default: 512)
-        - **temperature**: Sampling temperature (default: 0.2)
+        - **temperature**: Sampling temperature (default: 0.7)
         """
         try:
             system_prompt = request.system_prompt or "You are a helpful vision assistant."

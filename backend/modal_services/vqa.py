@@ -19,7 +19,8 @@ image = (
         "pydantic>=2.0",  # For request/response schemas
         "pillow",
         "httpx",
-        "prometheus-fastapi-instrumentator"
+        "prometheus-fastapi-instrumentator",
+        "torch-c-dlpack-ext",  # Performance optimization for TVM/vLLM
     )
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
@@ -32,7 +33,7 @@ _llm_cache = None
 
 @app.function(
     image=image,
-    gpu="A100",  # 80GB A100 - sufficient for 8B models with FP16
+    # gpu="A100",  # 80GB A100 - sufficient for 8B models with FP16
     volumes={"/data/models": vol},
     timeout=600,  # 10 minutes per job
     scaledown_window=300,  # Keep container warm for 5 min
@@ -41,6 +42,7 @@ def process_inference_job(
     messages: list,
     image_bytes: bytes | None,
     max_tokens: int = 512,
+    max_new_tokens: int = 32,
     temperature: float = 0.7,
 ):
     """Process a single inference job. LLM is cached per container."""
@@ -62,6 +64,7 @@ def process_inference_job(
             tensor_parallel_size=1,
             enforce_eager=True,
             max_num_seqs=4,
+            max_model_len=80000,  # Limit sequence length to fit available KV cache (estimated max: 87184)
         )
         print("✅ LLM loaded in job container")
     
@@ -77,6 +80,7 @@ def process_inference_job(
     llm = _llm_cache
     processor = process_inference_job._processor
 
+    # vLLM's SamplingParams only supports max_tokens, not max_new_tokens
     sampling_params = SamplingParams(
         max_tokens=max_tokens,
         temperature=temperature,
@@ -130,6 +134,7 @@ def process_inference_job(
     gpu="A100",  # 80GB A100 - sufficient for 8B models with FP16
     volumes={"/data/models": vol},
     scaledown_window=300,
+    min_containers=1,
     # min_containers removed to stay within 2 A100 limit (containers spin up on-demand)
 )
 @modal.concurrent(max_inputs=10)
@@ -180,6 +185,7 @@ def serve():
         model: str = Field(default=MODEL_NAME, description="Model name")
         messages: List[Message] = Field(..., description="List of messages")
         max_tokens: int = Field(default=256, ge=1, le=4096, description="Max tokens to generate")
+        max_new_tokens: int = Field(default=32, ge=1, le=4096, description="Max new tokens to generate")
         temperature: float = Field(default=0.0, ge=0.0, le=2.0, description="Sampling temperature (0.0 for deterministic)")
 
         class Config:
@@ -196,6 +202,7 @@ def serve():
                         }
                     ],
                     "max_tokens": 128,
+                    "max_new_tokens": 32,
                     "temperature": 0.0
                 }
             }
@@ -259,6 +266,7 @@ def serve():
         tensor_parallel_size=1,
         enforce_eager=True,
         max_num_seqs=4,
+        max_model_len=80000,  # Limit sequence length to fit available KV cache (estimated max: 87184)
     )
 
     # Load processor for chat template formatting
@@ -377,6 +385,7 @@ def serve():
             # Extract messages in OpenAI format and image
             processed_messages, image = await extract_messages_and_image(req.messages)
 
+            # vLLM's SamplingParams only supports max_tokens, not max_new_tokens
             sampling_params = SamplingParams(
                 max_tokens=req.max_tokens,
                 temperature=req.temperature,
@@ -500,6 +509,7 @@ def serve():
                 image_bytes=image_bytes,
                 max_tokens=req.max_tokens,
                 temperature=req.temperature,
+                max_new_tokens=req.max_new_tokens,
             )
 
             return AsyncJobResponse(

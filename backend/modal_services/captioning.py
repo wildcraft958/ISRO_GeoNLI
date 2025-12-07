@@ -2,7 +2,7 @@ import modal
 
 # --- CONFIGURATION ---
 # Point to the folder where we saved the merged model
-MERGED_MODEL_PATH = "/data/models/merged-qwen-vl"
+MERGED_MODEL_PATH = "/data/models/merged-qwen-vl-caption"
 MODEL_NAME = "qwen-caption-special"  # The name clients will use
 
 # Use the same volume as merge script
@@ -19,7 +19,8 @@ image = (
         "pydantic>=2.0",  # For request/response schemas
         "pillow",
         "httpx",
-        "prometheus-fastapi-instrumentator"
+        "prometheus-fastapi-instrumentator",
+        "torch-c-dlpack-ext",  # Performance optimization for TVM/vLLM
     )
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
@@ -32,7 +33,7 @@ _llm_cache = None
 
 @app.function(
     image=image,
-    gpu="A100-80GB",  # 80GB A100 - sufficient for 8B models with FP16
+    # gpu="A100-80GB",  # 80GB A100 - sufficient for 8B models with FP16
     volumes={"/data/models": vol},
     timeout=600,  # 10 minutes per job
     scaledown_window=300,  # Keep container warm for 5 min
@@ -62,6 +63,7 @@ def process_inference_job(
             tensor_parallel_size=1,
             enforce_eager=True,
             max_num_seqs=4,
+            max_model_len=80000,  # Limit sequence length to fit available KV cache (estimated max: 87184)
         )
         print("✅ LLM loaded in job container")
     
@@ -127,9 +129,10 @@ def process_inference_job(
 
 @app.function(
     image=image,
-    gpu="A100-80GB",  # 80GB A100 - sufficient for 8B models with FP16
+    gpu="A100",  # 80GB A100 - sufficient for 8B models with FP16
     volumes={"/data/models": vol},
     scaledown_window=300,
+    min_containers=1,
     # min_containers removed to stay within 2 A100 limit (containers spin up on-demand)
 )
 @modal.concurrent(max_inputs=10)
@@ -259,6 +262,7 @@ def serve():
         tensor_parallel_size=1,
         enforce_eager=True,
         max_num_seqs=4,
+        max_model_len=80000,  # Limit sequence length to fit available KV cache (estimated max: 87184)
     )
 
     # Load processor for chat template formatting

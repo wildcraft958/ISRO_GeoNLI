@@ -2,16 +2,16 @@ import modal
 
 # --- CONFIGURATION ---
 BASE_MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
-ADAPTER_REPO_ID = "Aksha-Drishti/qwen3vl-ft-caption-special"
-MERGED_MODEL_DIR = "/data/models/merged-qwen-vl-caption"
+ADAPTER_REPO_ID = "Aksha-Drishti/qwen3vl-8B-sar-2"
+MERGED_MODEL_DIR = "/data/models/merged-qwen3vl-sar"
 
 # Create a fresh volume for merged model
-vol = modal.Volume.from_name("vlm-weights-merged-caption-special", create_if_missing=True)
+vol = modal.Volume.from_name("vlm-weights-merge-qwen3vl-sar", create_if_missing=True)
 
 # We need recent transformers/peft for Qwen3-VL
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .pip_install(
+    .pip_install(   
         "transformers>=4.45.0",
         "peft",
         "torch",
@@ -22,21 +22,20 @@ image = (
     )
 )
 
-app = modal.App("merge-qwen3-vl-caption-special")
+app = modal.App("merge-qwen3-vl-sar")
 
 @app.function(
     image=image,
     volumes={"/data/models": vol},
     secrets=[modal.Secret.from_name("huggingface-secret")],
     timeout=3600,
-    # gpu="A100-80GB"  # High RAM needed to load base + adapter for merging
 )
 def merge_model():
     import torch
     from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
     from peft import PeftModel
-    
-    print(f"🔄 Loading Base Model: {BASE_MODEL_ID}...")
+    from huggingface_hub import login, upload_folder
+
     
     # 1. Load Base Model
     base_model = Qwen3VLForConditionalGeneration.from_pretrained(
@@ -45,7 +44,6 @@ def merge_model():
         device_map="auto",
         trust_remote_code=True,
     )
-    
     print(f"🔄 Loading Adapter: {ADAPTER_REPO_ID}...")
     
     # 2. Load Adapter
@@ -70,18 +68,7 @@ def merge_model():
     )
     processor.save_pretrained(MERGED_MODEL_DIR)
     
-    # Verify files were saved
-    import os
-    if os.path.exists(MERGED_MODEL_DIR):
-        file_count = len([f for f in os.listdir(MERGED_MODEL_DIR) if os.path.isfile(os.path.join(MERGED_MODEL_DIR, f))])
-        print(f"✅ Verified: {file_count} files saved to {MERGED_MODEL_DIR}")
-    else:
-        raise RuntimeError(f"❌ Model directory {MERGED_MODEL_DIR} was not created!")
-    
     # Commit the volume to persist changes
-    # Get fresh reference to volume inside function (required for Modal)
-    volume = modal.Volume.from_name("vlm-weights-merged-caption-special", create_if_missing=False)
-    volume.commit()
+    vol.commit()
     
     print("✅ Merge Complete! You can now serve this path.")
-

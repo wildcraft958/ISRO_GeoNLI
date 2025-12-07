@@ -85,7 +85,8 @@ def get_model_and_transform():
     cpu=2,
     memory=4096,  # 4GB RAM
     timeout=60,
-    scaledown_window=300,  # Keep warm for 5 minutes
+    scaledown_window=3000,  # Keep warm for 5 minutes
+    min_containers=1,
 )
 def classify_image(image_bytes: bytes) -> dict:
     """
@@ -175,26 +176,36 @@ def serve():
         """
         try:
             # Get image bytes
-            if request.image_base64:
-                # Decode base64
-                if "," in request.image_base64:
-                    # Data URI format
-                    _, b64_data = request.image_base64.split(",", 1)
+            image_bytes = None
+            
+            # Try image_base64 first, but validate it's not a placeholder
+            if request.image_base64 and request.image_base64.strip():
+                # Skip common placeholder values
+                if request.image_base64.lower() not in ["string", "none", "null", ""]:
+                    try:
+                        # Decode base64
+                        if "," in request.image_base64:
+                            # Data URI format
+                            _, b64_data = request.image_base64.split(",", 1)
+                        else:
+                            b64_data = request.image_base64
+                        image_bytes = base64.b64decode(b64_data)
+                    except Exception:
+                        # If base64 decode fails, ignore and fall through to image_url
+                        image_bytes = None
+            
+            # Fall back to image_url if image_base64 wasn't valid or wasn't provided
+            if image_bytes is None:
+                if request.image_url:
+                    # Download from URL
+                    response = await http_client.get(request.image_url)
+                    response.raise_for_status()
+                    image_bytes = response.content
                 else:
-                    b64_data = request.image_base64
-                image_bytes = base64.b64decode(b64_data)
-            
-            elif request.image_url:
-                # Download from URL
-                response = await http_client.get(request.image_url)
-                response.raise_for_status()
-                image_bytes = response.content
-            
-            else:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Either image_url or image_base64 must be provided"
-                )
+                    return ClassifyResponse(
+                        success=False,
+                        error="Either image_url or image_base64 must be provided"
+                    )
             
             # Classify
             result = classify_image.local(image_bytes)
