@@ -19,7 +19,7 @@ image = (
         "pillow",
         "prometheus-fastapi-instrumentator",
         "pydantic>=2.0.0",
-        "requests"
+        "httpx"
     )
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
@@ -42,7 +42,7 @@ def serve():
     from vllm import LLM, SamplingParams
     from pydantic import BaseModel, Field
     from typing import Optional, List
-    import requests
+    import httpx
     from urllib.parse import urlparse
 
     # Pydantic Models
@@ -209,27 +209,18 @@ def serve():
         is_url = image_input.strip().startswith(('http://', 'https://'))
         
         if is_url:
-            # Download image from URL with proper headers to avoid 403 errors
+            # Download image from URL using httpx (better default headers than requests)
             try:
-                parsed_url = urlparse(image_input)
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                    'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                }
-                # Add Referer header if we have a valid scheme and netloc
-                if parsed_url.scheme and parsed_url.netloc:
-                    headers['Referer'] = f"{parsed_url.scheme}://{parsed_url.netloc}/"
-                
-                response = requests.get(image_input, headers=headers, timeout=30)
-                response.raise_for_status()
-                image = Image.open(io.BytesIO(response.content))
-                # Convert to base64 for message formatting
-                img_buffer = io.BytesIO()
-                image.save(img_buffer, format='PNG')
-                img_buffer.seek(0)
-                b64_string = base64.b64encode(img_buffer.read()).decode('utf-8')
-                return image, b64_string
+                with httpx.Client(timeout=30, follow_redirects=True) as client:
+                    response = client.get(image_input)
+                    response.raise_for_status()
+                    image = Image.open(io.BytesIO(response.content))
+                    # Convert to base64 for message formatting
+                    img_buffer = io.BytesIO()
+                    image.save(img_buffer, format='PNG')
+                    img_buffer.seek(0)
+                    b64_string = base64.b64encode(img_buffer.read()).decode('utf-8')
+                    return image, b64_string
             except Exception as e:
                 raise ValueError(f"Failed to download image from URL '{image_input[:100]}...': {str(e)}")
         else:
