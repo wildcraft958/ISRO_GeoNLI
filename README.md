@@ -296,5 +296,5 @@ All model weights and code are released under the **Apache 2.0 License** unless 
 ---
 
 <p align="center">
-  <b>Developed with ❤️ by Team IIT Kharagpur for ISRO Space Applications Centre</b>
+  <b>Built with equal parts hard work, questionable sleep schedules, and industrial quantities of energy drinks by the Contingent Team of ISRO CV, IIT Kharagpur — for ISRO GeoNLI Challenge Inter IIT Tech Meet 14.0</b>
 </p>
