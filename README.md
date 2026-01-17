@@ -265,7 +265,7 @@ npm run dev  # Starts on http://localhost:3000
 
 ## 🏆 Team & Acknowledgments
 
-This project was developed by **Team IIT Kharagpur** for the **ISRO Space Applications Centre** problem statement at **Inter-IIT Tech Meet 14.0**.
+This project was developed by **IIT Kharagpur ISRO CV Contingent** for the **ISRO Space Applications Centre** problem statement at **Inter-IIT Tech Meet 14.0**.
 
 ### Competition Results
 
@@ -277,8 +277,6 @@ This project was developed by **Team IIT Kharagpur** for the **ISRO Space Applic
 ### Acknowledgments
 
 We thank **ISRO Space Applications Centre** for providing this challenging problem statement that pushes the boundaries of Vision-Language Models in the remote sensing domain. Special thanks to the organizers of Inter-IIT Tech Meet 14.0 for hosting this prestigious competition.
-
-> *AI Assistance Disclosure*: GPT-5 was used for structuring queries to build the grounding dataset. Grammarly was used for rephrasing the final report content.
 
 ---
 
