@@ -223,13 +223,14 @@ npm run dev  # Starts on http://localhost:3000
 │   └── scripts/                # Utility scripts (LoRA merge)
 ├── frontend/                   # React/Vite UI
 │   └── src/
+├── sam3-agent/                 # Full SAM3 library
+├── samples/                    # Sample satellite images
 ├── docs/                       # Reports and diagrams
 │   ├── DRISHTI_REPORT_FINAL.pdf
 │   ├── ISRO_M3_TechMeet14.pdf
 │   ├── architecture.png
 │   └── training_pipeline.png
-└── internal_data/              # SAM3 agent source & sample images
-    └── sam3-agent/             # Full SAM3 library
+└── docker-compose.yml          # Docker orchestration
 ```
 
 ---
