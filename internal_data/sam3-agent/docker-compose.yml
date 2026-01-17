@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  sam3-agent:
+    build: .
+    image: sam3-agent:latest
+    container_name: sam3-agent
+    ports:
+      - "8000:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ./assets:/app/assets
+      # Optional: Map output dir if needed
+      # - ./output:/app/output
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
