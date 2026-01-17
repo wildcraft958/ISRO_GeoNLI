@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <b>🏆 4th Place — ISRO Problem Statement, Inter-IIT Tech Meet 14.0</b><br/>
+  <b>🏆 4th Place — ISRO GeoNLI, Inter-IIT Tech Meet 14.0</b><br/>
   <b>🥇 Overall Champions — IIT Kharagpur</b>
 </p>
 
@@ -266,13 +266,13 @@ npm run dev  # Starts on http://localhost:3000
 
 ## 🏆 Team & Acknowledgments
 
-This project was developed by **IIT Kharagpur ISRO CV Contingent** for the **ISRO Space Applications Centre** problem statement at **Inter-IIT Tech Meet 14.0**.
+This project was developed by **IIT Kharagpur ISRO CV Contingent** for the **ISRO GeoNLI: Natural Language Interpretation of Satellite Imagery** problem statement at **Inter-IIT Tech Meet 14.0**.
 
 ### Competition Results
 
 | Achievement | Details |
 |-------------|---------|
-| **Problem Statement Rank** | 🏅 **4th Place** — ISRO Natural Language Satellite Imagery Analysis |
+| **Problem Statement Rank** | 🏅 **4th Place** — GeoNLI: Natural Language Interpretation of Satellite Imagery |
 | **Overall Standing** | 🥇 **Champions** — IIT Kharagpur won Inter-IIT Tech Meet 14.0 |
 
 ### Acknowledgments
