@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/ui_screenshot.png" alt="DRISHTI Interface" width="800"/>
+  <img src="docs/landing_page.png" alt="DRISHTI - Unlock the Language of Satellite Imagery" width="800"/>
 </p>
 
 <h1 align="center">DRISHTI</h1>
